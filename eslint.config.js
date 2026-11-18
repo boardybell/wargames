@@ -16,6 +16,15 @@ export default tseslint.config(
   },
   ...tseslint.configs.recommended,
   {
+    files: ['test/**'],
+    rules: {
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
+      ],
+    },
+  },
+  {
     files: ['src/engine/**/*.ts'],
     rules: {
       'no-restricted-properties': [

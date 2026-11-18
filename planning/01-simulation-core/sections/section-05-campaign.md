@@ -205,3 +205,21 @@ later timeout settlement of that mission.
    is inspected. Tests: designated record inspection logs the clue
    exactly once; non-designated records do not; works in any phase
    where INSPECT_RECORD is legal.
+
+## As built (2026-11-17)
+
+src/engine/campaign/{types,state,engine,selectors}.ts plus the
+mission-module seam declared early in src/engine/missions/types.ts;
+tests in test/engine/campaign/ (campaign.test.ts 33 tests,
+schema-parity.test.ts, stub-mission.ts, fixtures.ts). Key as-built
+facts: dispatch takes an explicit EngineContext { seeds, missions,
+missionOrder }; rejected actions return the DRAINED state with a
+same-reference no-op guarantee; timeout settlement INTERLEAVES into the
+drain at the deadline so post-deadline events see the settled mission
+(review HIGH 1); one desk answer per record per campaign (review HIGH
+2, corroboration farming killed); dispatch is total via a tagged result
+union (review HIGH 3); CampaignState carries openExceptionsBaseline
+(from the seed) and MissionRuntime carries actionCount; NEW_CAMPAIGN
+accepts resetPreferences; isMissionSettled is exported for section 08;
+schema-type parity is compile-asserted. Full trail in
+implementation/code_review/section-05-*.md.
