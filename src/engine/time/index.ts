@@ -56,6 +56,11 @@ export interface DrainResult {
  *  for the following wake. */
 export const CATCH_UP_CAP_MS = 30 * 60 * 1000
 
+/** Extended-time multiplier: start-anchored offsets and the mission span
+ *  scale by this; end-anchored offsets never scale. Single source of truth
+ *  so proportionality tests cannot drift from the engine. */
+export const EXTENDED_TIME_SCALE = 2
+
 function compareEvents(
   a: { scheduledAt: number; id: string },
   b: { scheduledAt: number; id: string },
@@ -77,7 +82,7 @@ export function materializeSchedule(
   if (!Number.isInteger(startNow) || !Number.isInteger(standardDurationMs)) {
     throw new Error('time: startNow and standardDurationMs must be integers')
   }
-  const scale = duration === 'extended' ? 2 : 1
+  const scale = duration === 'extended' ? EXTENDED_TIME_SCALE : 1
   const endsAt = startNow + standardDurationMs * scale
   const seen = new Set<string>()
   const queue = specs.map((spec) => {
