@@ -173,3 +173,18 @@ warnings, finaleFinalPhase) materialize as endsAt - offset and NEVER
 scale: a 30-second warning fires at T minus 30 under both durations.
 Tests: both anchors materialize correctly; extended time scales
 start-anchored only.
+
+## As built (2026-11-17)
+
+src/engine/time/index.ts (single module) and
+test/engine/time/time.test.ts (21 tests). Amendment 4 implemented:
+ScheduledEventSpec.anchor with end-anchored offsets materializing as
+endsAt minus offset, never scaled; start-anchored scale x2 under
+extended. DrainResult.processed carries queue-of-origin tags in
+(scheduledAt, id) order (full ties: mission before campaign,
+documented). The plan's optional onTimeout callback was dropped per its
+own allowance; timedOut stays true on repeat advances until the caller
+settles. Review hardening: integer rawNow validation (NaN would have
+frozen the clock permanently), end-anchor duration bound, duplicate-id
+rejection, clamped-timeout and round-trip tests. Trail in
+implementation/code_review/section-04-*.md.

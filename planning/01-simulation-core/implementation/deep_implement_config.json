@@ -26,6 +26,10 @@
     "section-02-rng": {
       "status": "complete",
       "commit_hash": "dd017fa"
+    },
+    "section-03-records": {
+      "status": "complete",
+      "commit_hash": "4d0a7e8"
     }
   },
   "pre_commit": {
