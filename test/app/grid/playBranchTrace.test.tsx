@@ -45,7 +45,7 @@ describe('PlayBranchTrace', () => {
   })
 
   it('under reduced motion every step is present at once', () => {
-    setMotionOverride('reduce')
+    setMotionOverride('reduced')
     render(<PlayBranchTrace steps={STEPS} />)
     expect(screen.getAllByTestId('branch-step')).toHaveLength(3)
     expect(screen.queryByTestId('branch-skip')).toBeNull()

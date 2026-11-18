@@ -46,6 +46,10 @@
     "section-07-audio-engine": {
       "status": "complete",
       "commit_hash": "87ab1ed"
+    },
+    "section-08-cabinet-grid": {
+      "status": "complete",
+      "commit_hash": "cb57732"
     }
   },
   "pre_commit": {

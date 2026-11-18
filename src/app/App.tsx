@@ -11,6 +11,7 @@ import {
   type RouterState,
   type ScreenRegistry,
 } from './router'
+import { LiveRegions } from './a11y/LiveRegions'
 
 export interface AppProps {
   readonly registry?: ScreenRegistry
@@ -34,9 +35,9 @@ export function App({ registry = {}, initial }: AppProps) {
       >
         <Screen screenId={router.base} />
       </main>
-      {/* Reserved for section 09 live regions: a sibling of the dialog host,
-          outside any screen root. Keep the position; do not restructure. */}
-      <div data-testid="live-region-slot" hidden />
+      {/* The live regions: siblings of the dialog host, outside any screen
+          root, so an assertive announcement still fires while a modal is open. */}
+      <LiveRegions />
       <div className="dialog-host" data-testid="dialog-host" />
     </div>
   )

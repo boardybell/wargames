@@ -83,7 +83,9 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
             type="checkbox"
             data-testid="toggle-motion"
             checked={reducedMotion}
-            onChange={(e) => setMotionOverride(e.target.checked ? 'reduce' : 'full')}
+            onChange={(e) =>
+              setMotionOverride(e.target.checked ? 'reduced' : 'full')
+            }
           />
           {' REDUCE MOTION'}
         </label>

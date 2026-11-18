@@ -158,7 +158,7 @@ describe('CharacterGrid', () => {
       <CharacterGrid cells={cells} selection={{ row: 0, col: 0 }} />,
     )
     expect(screen.getAllByRole('gridcell')[0]).toHaveClass('char-cell-anim')
-    setMotionOverride('reduce')
+    setMotionOverride('reduced')
     rerender(<CharacterGrid cells={cells} selection={{ row: 0, col: 0 }} />)
     expect(screen.getAllByRole('gridcell')[0]).not.toHaveClass('char-cell-anim')
   })

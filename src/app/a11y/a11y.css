@@ -1,0 +1,52 @@
+/* Accessibility primitives styling. The live regions are visually hidden with
+   the standard clip-rect technique (not display:none, which assistive tech
+   skips). The glossary term is a subtle dotted-underline inline control with a
+   plain-text popup; final color composes with the section-03 theme tokens. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.glossary-wrap {
+  position: relative;
+  display: inline-block;
+}
+
+.glossary-term {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: help;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+
+.glossary-term:focus-visible {
+  outline: 2px solid var(--color-focus, #9fd8ff);
+  outline-offset: 2px;
+}
+
+.glossary-popup {
+  position: absolute;
+  left: 0;
+  top: 100%;
+  z-index: 20;
+  max-width: 22rem;
+  margin-top: 0.25rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--color-glass, #050a14);
+  color: var(--color-glyph, #6cb6ff);
+  border: 1px solid var(--color-dim, #7fb0e0);
+  font-size: 0.9em;
+  line-height: 1.4;
+  white-space: normal;
+}

@@ -7,8 +7,9 @@ describe('app smoke', () => {
     render(<App />)
     expect(screen.getByTestId('screen-root')).toBeInTheDocument()
     expect(screen.getByTestId('dialog-host')).toBeInTheDocument()
-    // The reserved live-region position exists so section 09 is an insertion.
-    expect(screen.getByTestId('live-region-slot')).toBeInTheDocument()
+    // The live regions mount at the app root as dialog-host siblings.
+    expect(screen.getByTestId('live-polite')).toBeInTheDocument()
+    expect(screen.getByTestId('live-assertive')).toBeInTheDocument()
   })
 
   it('defaults to the hero base screen', () => {

@@ -127,3 +127,40 @@ Mount `<LiveRegions />` in the App shell as a direct sibling of the dialog host 
 - section-01-app-scaffold: App shell with dialog host, jsdom Vitest project, Testing Library. Required before starting.
 - Blocks section-04 (precedence stack over the bail predicate, moveFocusTo on screen change, glossary terms in terminal text) and section-06 (settings writes the motion override, dialogs render glossary terms).
 - section-03 consumes useMotionPreference through its injected reducedMotion option and rewires to the real hook when this section lands; no work required here for that handoff beyond the stable export.
+
+## Implementation notes (as built)
+
+This section refined the stand-ins that sections 03-08 already consumed, so it
+modified existing files rather than only adding new ones, keeping every consumer
+green. Final suite 471 tests.
+
+- **motion.ts**: `MotionOverride` is `'system' | 'reduced' | 'full'`;
+  `useMotionPreference()` is the primary hook and `useReducedMotion` is a kept
+  alias (same function). The override persists to localStorage (`wg-motion-override`)
+  with a corrupt/missing read falling back to `'system'`; jsdom has no
+  localStorage, so the in-memory value is the session source of truth. The
+  subscribe path also listens to the live `prefers-reduced-motion` media query.
+  Call sites moved from the stand-in `'reduce'` literal to `'reduced'`.
+- **keys.ts** holds `shouldBailFromKeyHandling`; `keyHandler.ts` keeps
+  `shouldHandleKey` as its inverse and re-exports `KeyLike`.
+- **announce.ts** keeps the `onAnnounce` raw-sink API and adds a bounded polite
+  coalescer: one ~800ms window dedups identical strings and flushes all distinct
+  strings as a single ordered utterance, then clears (finale-safe, no backlog).
+  Assertive writes through immediately with a sequence bump (no coalesce). A
+  region store feeds `LiveRegions`, which renders `role="status"` (polite) and
+  `role="alert"` (assertive) with an inner span keyed on the sequence so an
+  identical string re-reads. App.tsx mounts `<LiveRegions />` as a dialog-host
+  sibling (replacing the old live-region-slot placeholder).
+- **focus.ts** `moveFocusTo` resolves heading -> an opt-in `[data-a11y-focus]`
+  input -> the root (tabindex -1 applied when needed, `preventScroll: true`).
+  The command-input step is opt-in on purpose: auto-focusing every screen's
+  command input would route menu number-shortcuts into the field (where the bail
+  predicate suppresses them). The menu keeps root focus; an input-first screen
+  marks its input.
+- **glossary.ts** ships ten entries with a registry (`getGlossaryEntry`,
+  `registerGlossaryTerms`, `allGlossaryEntries`, `hasGlossaryEntry`,
+  `__resetGlossary`). **GlossaryTerm.tsx** is an interactive button
+  (aria-expanded, aria-describedby tooltip, hover/focus open, click opens,
+  blur/leave/Escape close) that takes either an inline `{term, definition}` or a
+  registry `{id}`. An unregistered id throws in dev and degrades to the raw id in
+  production; registration collisions throw in dev and log-and-skip in prod.
