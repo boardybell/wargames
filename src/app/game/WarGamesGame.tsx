@@ -6,40 +6,97 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import './game.css'
 
-// ---------- tiny sound (created on the activation gesture) ----------
+// ---------- sound (created and resumed on the activation gesture) ----------
 let actx: AudioContext | null = null
+let master: GainNode | null = null
+let soundOn = false
+
 function ctx(): AudioContext | null {
   if (actx) return actx
   try {
-    const C = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
-    if (C) actx = new C()
+    const C =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext?: typeof AudioContext })
+        .webkitAudioContext
+    if (C) {
+      actx = new C()
+      master = actx.createGain()
+      master.gain.value = 0.6
+      master.connect(actx.destination)
+    }
   } catch {
     actx = null
   }
   return actx
 }
-let soundOn = false
-function beep(freq = 440, dur = 0.05, type: OscillatorType = 'square', gain = 0.03): void {
+
+// Start audio inside a user gesture: resume the context and lay down a low
+// room-hum bed so the machine is always audibly alive.
+function startAudio(): void {
+  soundOn = true
+  const c = ctx()
+  if (!c || !master) return
+  try {
+    void c.resume()
+  } catch {
+    /* ignore */
+  }
+  try {
+    const hg = c.createGain()
+    hg.gain.value = 0.05
+    hg.connect(master)
+    for (const f of [57, 57.7, 114]) {
+      const o = c.createOscillator()
+      o.type = 'sine'
+      o.frequency.value = f
+      o.connect(hg)
+      o.start()
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+function beep(
+  freq = 440,
+  dur = 0.07,
+  type: OscillatorType = 'square',
+  gain = 0.14,
+): void {
   if (!soundOn) return
   const c = ctx()
-  if (!c) return
+  if (!c || !master) return
   try {
     const o = c.createOscillator()
     const g = c.createGain()
     o.type = type
     o.frequency.value = freq
     o.connect(g)
-    g.connect(c.destination)
+    g.connect(master)
     const t = c.currentTime
-    g.gain.setValueAtTime(gain, t)
+    g.gain.setValueAtTime(0.0001, t)
+    g.gain.exponentialRampToValueAtTime(gain, t + 0.01)
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur)
     o.start(t)
-    o.stop(t + dur)
+    o.stop(t + dur + 0.03)
   } catch {
     // never let a dead speaker break the game
   }
 }
-const thud = (): void => beep(55, 0.5, 'sine', 0.35)
+// A rising two-tone confirm.
+function chime(base = 520): void {
+  beep(base, 0.09, 'square', 0.12)
+  setTimeout(() => beep(base * 1.5, 0.12, 'square', 0.12), 90)
+}
+const thud = (): void => {
+  beep(70, 0.5, 'sine', 0.6)
+  beep(45, 0.6, 'triangle', 0.45)
+}
+function siren(): void {
+  for (let i = 0; i < 8; i++) {
+    setTimeout(() => beep(i % 2 ? 760 : 560, 0.2, 'sawtooth', 0.14), i * 190)
+  }
+}
 
 const REDUCED =
   typeof window !== 'undefined' &&
@@ -79,7 +136,7 @@ function Typer({
     const id = setInterval(() => {
       n += 1
       setShown(n)
-      if (tick && n % 2 === 0) beep(1200 + (n % 5) * 40, 0.012, 'square', 0.015)
+      if (tick && n % 2 === 0) beep(900 + (n % 4) * 70, 0.016, 'square', 0.06)
       if (n >= total) clearInterval(id)
     }, 1000 / cps)
     return () => clearInterval(id)
@@ -193,13 +250,11 @@ export function WarGamesGame() {
   const [side, setSide] = useState<'US' | 'SU'>('US')
 
   const activate = (): void => {
-    soundOn = true
-    try {
-      void ctx()?.resume()
-    } catch {
-      /* ignore */
-    }
-    beep(300, 0.08, 'sawtooth', 0.04)
+    startAudio()
+    // A rising power-on sweep so you hear the machine wake.
+    beep(180, 0.5, 'sawtooth', 0.14)
+    setTimeout(() => beep(360, 0.4, 'sawtooth', 0.12), 160)
+    setTimeout(() => chime(520), 420)
     if (REDUCED) {
       setStage('boot')
       return
@@ -248,6 +303,17 @@ function Screen({
   onStage: (s: Stage) => void
   onSide: (s: 'US' | 'SU') => void
 }) {
+  useEffect(() => {
+    if (stage === 'greeting') beep(140, 0.7, 'sine', 0.18)
+    else if (stage === 'menu') chime(500)
+    else if (stage === 'chess') beep(300, 0.3, 'sawtooth', 0.12)
+    else if (stage === 'side') chime(420)
+    else if (stage === 'end') {
+      beep(392, 0.18, 'sine', 0.14)
+      setTimeout(() => beep(523, 0.5, 'sine', 0.14), 220)
+    }
+  }, [stage])
+
   return (
     <div className="wg-screen" data-testid="screen">
       <div className="wg-out">
@@ -408,10 +474,12 @@ function War({ side, onDone }: { side: 'US' | 'SU'; onDone: () => void }) {
     t(200, () => addLog(`${side === 'US' ? 'U.S.' : 'USSR'} FIRST STRIKE AUTHORIZED. LAUNCH ORDER TRANSMITTED.`))
     t(900, () => {
       setDefcon(4)
+      beep(320, 0.28, 'square', 0.12)
       addLog('SOVIET EARLY WARNING RADAR: INBOUND TRACKS DETECTED.')
     })
     t(1800, () => {
       setDefcon(3)
+      beep(260, 0.3, 'square', 0.13)
       addLog('RETALIATORY LAUNCH DETECTED. 2,400 WARHEADS INBOUND.', true)
     })
 
@@ -438,9 +506,13 @@ function War({ side, onDone }: { side: 'US' | 'SU'; onDone: () => void }) {
       })
     })
 
-    t(5200, () => setDefcon(2))
+    t(5200, () => {
+      setDefcon(2)
+      beep(210, 0.32, 'square', 0.14)
+    })
     t(6600, () => {
       setDefcon(1)
+      siren()
       addLog('DEFCON 1. GENERAL NUCLEAR WAR IN PROGRESS.', true)
     })
     t(7600, () => addLog('WOPR HAS ASSUMED LAUNCH CONTROL. SIMULATING ALL REMAINING SCENARIOS...'))
