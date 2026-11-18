@@ -13,7 +13,7 @@ import {
 import { registerMultiTab } from './multiTab'
 import { mountAudio } from '../audio/mount'
 
-export { useCampaign, getMissionOrder, getState } from './store'
+export { useCampaign, getMissionOrder, getState, getContext } from './store'
 export { send, type SendResult } from './send'
 export { wake } from './wake'
 export { onEngineEvent, type EngineEventConsumer, type Unsubscribe } from './events'

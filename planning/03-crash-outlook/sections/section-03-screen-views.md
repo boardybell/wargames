@@ -142,3 +142,24 @@ Shows primary stage (FULL / SLOWED / DARK), backup remaining, next ETA. All thre
 ## Definition of Done
 
 All tests in `test/app/missions/outlook/` pass in the jsdom project via `npm test`. Four views reachable by command and by tab/selection on desktop, single-pane with back on mobile. Every verb has command-button identity. TRACE and CHECK SOURCE flow through `INSPECT_RECORD` and `REQUEST_SOURCE_CHECK` with results rendered from emitted events. Disabled sends show inline reasons. StatusLine, announcements, and cues are driven exclusively by engine state and engine milestones. Glossary terms open correctly with no duplicate registrations. All copy uppercase terminal diction with no em-dashes.
+## Implementation notes (as built)
+
+Files: src/app/missions/outlook/{OutlookScreen,InboxView,MessageView,OutboxView}.tsx,
+{verbs,selectors,glossary}.ts; shell extensions src/app/terminal/{commandGrammar,
+ActionBar}.ts, src/app/screens/{ScreenRouter,screenUiCommands(new)}.ts, state
+barrel getContext re-export; tests under test/app/missions/outlook/. App project
+311 tests; full suite green; tsc + eslint clean.
+
+CHECK SOURCE stays engine-owned (the screen reads engine-resolved state.sourceChecks
+/ campaignQueue and renders arrivedAfterSettlement, never computes a verdict);
+disabled action reasons come straight from the module validate(). Code-review
+fixes applied before commit: removed the screen's private command form (it
+collided with the shell's shared CommandInput through ScreenRouter) and wired the
+INBOX/OUTBOX/LOG/BACK view commands through a new mission-scoped SCREEN UI command
+(LocalUiCommand variant + per-screen UI-handler registry); replaced the SEND
+button's hidden auto-route-to-correct-recipient with a real desk picker so a wrong
+route is clickable and the mission cannot be won without reading the evidence
+(test-proven); added a visible role=timer countdown driven by the display clock;
+sourced the inbox receipt time from the record's real receiptTime; typed the
+payload as OutlookPayload | undefined; keyed the ack-announce dedupe on a stable
+send identity; and dropped the global data-action attribute from the shared ActionBar.

@@ -14,6 +14,12 @@ export type LocalUiCommand =
   | { readonly kind: 'LIST_GAMES' }
   | { readonly kind: 'ACKNOWLEDGE' }
   | { readonly kind: 'SET_SOUND'; readonly on: boolean }
+  // A mission-scoped UI command the shell does not interpret: it carries an
+  // opaque detail that the active screen (identified by screenId) handles
+  // itself, so a mission can switch its own views through the single shared
+  // command line without the shell growing a per-mission case. ScreenRouter
+  // routes this to the screen's registered handler.
+  | { readonly kind: 'SCREEN'; readonly screenId: string; readonly detail: unknown }
 
 export type ParseResult =
   | { readonly kind: 'action'; readonly action: CampaignAction }
@@ -57,6 +63,13 @@ export function registerScreenVerbs(
     scope.set(verb, { ...reg, verb })
   }
   screenVerbs.set(screenId, scope)
+}
+
+/** Drop a screen's verb scope. A screen calls this on unmount so a later
+ *  remount can re-register the same verbs without a duplicate-registration
+ *  throw. Unknown screen ids are a no-op. */
+export function unregisterScreenVerbs(screenId: string): void {
+  screenVerbs.delete(screenId)
 }
 
 /** Active-screen verbs shadow shell verbs. */

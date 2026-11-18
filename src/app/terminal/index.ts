@@ -7,6 +7,7 @@ export {
   normalizeCommand,
   registerShellVerb,
   registerScreenVerbs,
+  unregisterScreenVerbs,
   resolveVerb,
   verbsForScreen,
   type VerbRegistration,

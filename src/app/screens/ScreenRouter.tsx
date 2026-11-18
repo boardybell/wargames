@@ -17,6 +17,7 @@ import { resolveMissionScreen } from './screenRegistry'
 import { pendingDebrief } from './pendingDebrief'
 import { handleCapturedKey } from './inputStack'
 import { openOverlay, closeOverlay, getOverlay } from './dialogState'
+import { dispatchScreenUiCommand } from './screenUiCommands'
 import { DialogLayer } from './DialogLayer'
 import type { CampaignState } from '@engine'
 
@@ -74,6 +75,10 @@ export function ScreenRouter({ onListGames, onSetSound }: ScreenRouterProps) {
         break
       case 'SET_SOUND':
         onSetSound?.(command.on)
+        break
+      case 'SCREEN':
+        // A mission-scoped UI command: hand it to the screen that owns it.
+        dispatchScreenUiCommand(command.screenId, command.detail)
         break
     }
   }
