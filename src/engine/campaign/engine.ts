@@ -47,6 +47,7 @@ export function createCampaign(
   ctx: EngineContext,
   seedName: string,
   preferences: { extendedTime: boolean },
+  now = 0,
 ): CampaignState {
   const seed = ctx.seeds[seedName]
   if (!seed) throw new Error(`campaign: unknown seed ${seedName}`)
@@ -57,7 +58,9 @@ export function createCampaign(
     // stream from day one.
     rng: { words: [...rngFromSeed(seed.seedNumber).words] },
     openExceptionsBaseline: seed.openExceptionsBaseline,
-    lastNow: 0,
+    // Seed lastNow at creation so the first dispatch is not spuriously
+    // clamped by the 30-minute catch-up cap.
+    lastNow: now,
     phase: 'menu',
     activeMission: null,
     missionQueue: [],
@@ -542,12 +545,12 @@ function reduceAction(
       const carried = action.resetPreferences
         ? { extendedTime: false }
         : state.preferences
+      // One convention for seeding lastNow: the constructor arg. (The
+      // default now=0 suits a bootless fixture; the shell boot path and
+      // every reset pass a real clock.)
       return {
         ok: true,
-        state: {
-          ...createCampaign(ctx, action.seedName, carried),
-          lastNow: now,
-        },
+        state: createCampaign(ctx, action.seedName, carried, now),
       }
     }
     case 'MISSION_ACTION': {

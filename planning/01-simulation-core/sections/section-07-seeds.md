@@ -209,3 +209,20 @@ clueRecords recordId exists in the record graph.
    with a deskChecks reply row whose authored wait satisfies
    wait <= finaleDuration - decisionMargin (both authored integers).
    Seed validation asserts existence, independence, and the bound.
+
+## As built (2026-11-17)
+
+src/engine/seeds/catalog.ts (three curated seeds: exercise-r04 the
+requirements fixture, exercise-k11, exercise-t58) plus
+test/engine/seeds/{seed-validation,walkthrough}.test.ts. Decisions:
+SeedTuning and StormTrackPoint are NOT top-level fields; mission tuning
+and storm data live inside missionPayloads.<mission> per the rev-2
+mission-split plans (opaque here). Each seed ships FIVE records: the
+four-role structure plus a dedicated post-incident finale field report
+(R21/R33/R47), OBSERVED and independent, distinct from the during-
+incident decoy. Engine fix carried here: createCampaign seeds lastNow at
+the creation timestamp (a 0 default spuriously tripped the 30-minute
+catch-up cap on the first dispatch at a large wall-clock now);
+NEW_CAMPAIGN unified on the same arg. The six-permutation test proves
+order-invariance over dispatched campaign case facts, not static seed
+input. Full trail in implementation/code_review/section-07-*.md.

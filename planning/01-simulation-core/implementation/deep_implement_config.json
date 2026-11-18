@@ -38,6 +38,10 @@
     "section-05-campaign": {
       "status": "complete",
       "commit_hash": "1ec2af5"
+    },
+    "section-06-mission-interface": {
+      "status": "complete",
+      "commit_hash": "58d6ee6"
     }
   },
   "pre_commit": {
