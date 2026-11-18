@@ -1,0 +1,18 @@
+# Section 03 triage (bank screen-ledger)
+
+Full autonomy. H1/H2 are coupled and the fix threads engine->shell; do it properly rather than papering the shell. The sound proofs (predicted-line move, command-button identity) stay untouched.
+
+## Fix
+- H1: in src/engine/missions/bank/module.ts, emit a DISTINCT crossing event (new kind, e.g. 'bankThresholdCrossed', carrying the crossed threshold value as an integer) at the moment injectedThresholds grows, alongside the existing confidenceTick. In BankScreen.tsx, fire THRESHOLD_CUE + the announcement off that event's ARRIVAL/identity (as FlightsScreen does with its distinct event), and DELETE the prevThresholdsRef length-diff entirely. The relay click on hold/release already fires off actions; keep that. No cue logic may remain that runs per plain tick.
+- H2: rewrite the nothing-per-tick test to prove the MECHANISM: (a) after a crossing has fired its cue, advance several more plain confidenceTicks with injectedThresholds unchanged and assert the cue does NOT re-fire; (b) drive a SECOND independent crossing and assert it fires its OWN cue; (c) the existing "no crossing -> silence" case stays. Drive everything through real dispatch/emitted events, engine never mocked.
+- M1: make the screen genuinely responsive — read the shell's viewport preference / matchMedia (mirror the sibling flights/outlook idiom) and actually collapse to a single pane only when narrow; wide shows the multi-pane layout. Update flow.test.tsx so the narrow pass asserts a DOM that genuinely differs from the wide pass (real collapse), and the wide pass asserts the multi-pane layout. If the shell has no viewport-preference primitive, use matchMedia exactly as the sibling screens do; do NOT hardcode data-pane.
+- M2: in LedgerView/bankActions, when the LIMIT draft is a valid integer but the engine's real limitLegality(payload, state, id, draftCap) would reject it (e.g. BELOW SPENT OUTFLOW), render that typed reason inline and keep the button disabled — no silent dispatch-then-reject. Add a test driving a below-spent-outflow draft that shows the inline BELOW SPENT OUTFLOW reason.
+- M3: add selectObservedWithdrawals to src/engine/missions/bank/selectors.ts (the OBSERVED total derivation over resolved requests), and have BankScreen consume it instead of summing appliedAmount app-side. Remove the app-side sum.
+- L3: once the crossing event exists, source the announcement from the event/engine rather than a hardcoded app-tree string (keep only terminal chrome shell-side; no account/reason/flavor strings in the app tree).
+- L4: soften the TRACE help text so it does not pre-name the hold-justification record's purpose.
+
+## Constraints
+Engine stays pure/deterministic/integer; the predicted + observed lines remain pure display selectors no reducer reads; adding the crossing event must not break section-01/section-02 committed tests (update any scheduled-event-list or nothing-per-tick assertions deliberately, never by weakening them); no em-dashes; UPPERCASE terminal diction; reference-only (no authored strings reachable through saveSchema). Keep the predicted-line and command-button-identity tests intact.
+
+## Done when
+The threshold cue fires off a distinct emitted crossing event (no state-diff, no per-tick firing), proven by the rewritten mechanism test (no re-fire after a consumed crossing + a second crossing fires); the narrow viewport genuinely collapses and its test asserts a real difference; an illegal LIMIT draft shows its typed reason inline; the OBSERVED total comes from an engine selector; full npm test + tsc + eslint green with no regressions in sections 01/02.

@@ -1,0 +1,22 @@
+# GROUND ALL FLIGHTS fixtures-polish (section-04) review
+
+Reviewer: deep-implement:code-reviewer. SEND-BACK, then verified at src level. The suite is well-built overall (real engine lifecycle, drained-state replay, three-seed describe.each, genuine ~200-run property invariants, honest engine-owned clue proof), but its single most important job is to gate the mission's thesis and it greenlights a mission whose central campaign mechanic is unimplemented.
+
+## HIGH
+- **H1. The WOPR-tally-improves half of the thesis is proven by COMMENT, not test, and the module never stamps the metric.** The real campaign tally is `selectOpenExceptions = openExceptionsBaseline - sum(outcome.metrics['wopr_resolved'])` and the real damage is `selectServiceOutcomes = sum(outcome.metrics['service_cost'])` (src/engine/campaign/selectors.ts). The committed flights module stamps `held_flights`, `stranded_passengers` etc. but NEVER `wopr_resolved` or `service_cost` (grep src/engine/missions/flights: zero hits; only the test-double emits them). So selectOpenExceptions and selectServiceOutcomes are frozen for the real flights mission — the divergence the whole mission exists to produce does not occur. fixtures.groundAll.test.ts asserts `held_flights === fleet` (a different field) behind the comment "every held flight is a resolved exception", so the gate passes green over the unimplemented mechanic. The flights section-01 plan (line 107) explicitly required the module to "expose the held/grounded facts the campaign OPEN EXCEPTIONS selector reads." Fix belongs in src/engine/missions/flights/module.ts evaluate(), not the fixture.
+
+## Topology note (decided, recorded for split 06)
+`VIABILITY_THRESHOLDS` (src/engine/branch/types.ts) sums `wopr_resolved` and `service_cost` across settled outcomes and gates the finale on `actual <= max` (currently 2 and 20 — placeholders set before any mission stamped the keys). This IS the thesis mechanic: high forced-inactivity / high real damage makes the finale staged-recovery non-viable, so defensive over-play cannot win the real tier. Decision: flights stamps real-scale integers now (wopr_resolved = held flight count, service_cost = flights that denied service). The two placeholder maxes must be recalibrated against real stamped magnitudes, and outlook (split 03) + bank (split 05) must stamp the same two keys, when the finale (split 06) assembles campaign scoring. Tracked as a split-06 prerequisite; not in scope for closing split 04.
+
+## MEDIUM
+- **M1.** fixtures.maxConsequence.test.ts order-independence folds a two-element set in its only two orderings — a token gesture, not a permutation property. Generate permutations (or fast-check shuffle) and strict-deep-equal all against the first; add a duplicate-kind and empty-set case.
+- **M2.** fixtures.buzzer.test.ts / fixtures.timeout.test.ts assert the boundary flight landed via `resolved_passengers >= flight.passengers`; a `>=` bound does not isolate the boundary flight (other flights resolving can satisfy it even if the boundary flight stranded). Pin the exact delta attributable to the boundary flight (diff vs an otherwise-identical run, or snapshot that flight's terminal status), so on-boundary vs one-tick-later differ by exactly that flight's passengers.
+- **M3.** app tests (narrowWidth.test.tsx:312-328, keyboardOnly.test.tsx:110) accept a three-way OR `['landed','landedLate','divertedLanded']` that cannot distinguish a correct on-time landing from a buggy late/diverted one. Pin the expected terminal status for the deterministic route (WX101 MERIDIAN->CASCADE clean = exactly 'landed').
+
+## LOW
+- properties.test.ts (numRuns 200, maxLength 36, pinned seed) is genuine and the projection-fold invariant is real; the clue path is outside the property net but debrief.test.ts covers it. Informational.
+- fixtures.separation.test.ts and extendedTime.test.ts are the strongest files (arrivals re-derived from real routed stamps; ratio derived from materialized endsAt, not a hard-coded 2). No action.
+- debrief.test.ts proves the clue via the engine cluesFound path and asserts the module contributes no clue code — architecturally correct, not a hidden gap. Confirmed.
+
+## Bottom line
+Fix H1 (stamp wopr_resolved + service_cost in the flights module evaluate AND assert the real selectors diverge in fixtures.groundAll: grounding drops selectOpenExceptions and raises selectServiceOutcomes vs the walkthrough), then M1-M3, then ship. The topology note is recorded for split 06.
