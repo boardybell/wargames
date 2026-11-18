@@ -1,0 +1,32 @@
+{
+  "plugin_root": "/Users/darkpool/.claude/plugins/cache/piercelamb-plugins/deep-implement/0.2.1",
+  "sections_dir": "/Users/darkpool/wargames/planning/02-terminal-shell/sections",
+  "target_dir": "/Users/darkpool/wargames",
+  "state_dir": "/Users/darkpool/wargames/planning/02-terminal-shell/implementation",
+  "git_root": "/Users/darkpool/wargames",
+  "commit_style": "simple",
+  "test_command": "npm test",
+  "sections": [
+    "section-01-app-scaffold",
+    "section-02-engine-binding",
+    "section-03-crt-theme",
+    "section-04-terminal-framework",
+    "section-05-hero-pushin",
+    "section-06-overlays-settings",
+    "section-07-audio-engine",
+    "section-08-cabinet-grid",
+    "section-09-a11y-glossary",
+    "section-10-art-slots-extras"
+  ],
+  "sections_state": {},
+  "pre_commit": {
+    "present": false,
+    "type": "none",
+    "config_file": null,
+    "native_hook": null,
+    "may_modify_files": false,
+    "detected_formatters": []
+  },
+  "created_at": "2026-11-18T01:32:32.602663+00:00",
+  "runtime": "typescript-npm"
+}

@@ -1,0 +1,12 @@
+Glass TTY VT220
+===============
+
+Designer: Viacheslav Slavinsky (svofski)
+Status: Public domain.
+
+A pixel-accurate revival of the DEC VT220 terminal typeface. Released by the
+author into the public domain for any use.
+
+Source TTF: https://github.com/svofski/glasstty (Glass_TTY_VT220.ttf)
+Converted locally to WOFF2 (glass-tty-vt220.woff2) for self-hosting. No
+runtime network request is made for this font; it ships with the build.

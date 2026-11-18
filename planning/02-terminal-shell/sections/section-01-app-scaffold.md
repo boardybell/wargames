@@ -128,3 +128,12 @@ This section only places the files and license notes; `@font-face` rules, `font-
 ## Dependencies and Downstream
 
 Depends on split 01 (the engine and its tooling skeleton) being in place at the repo root. Blocks every other section of this split: 02 (engine binding), 03 (CRT theme), 09 (a11y spine), and 10 (art slots) start in parallel immediately after this lands, each relying on the jsdom project, the `@app` alias, the App root structure, `urlFor`, and the fonts directory.
+## As Built (section-01 implementation)
+
+Built and committed. 236 tests green (219 engine node + 17 app jsdom) in one `npm test`; tsc and eslint clean; `npm run build` succeeds with base-prefixed assets.
+
+- Toolchain: react@^18, react-dom@^18 (only new runtime deps); dev: vite@^6, @vitejs/plugin-react@^5 (v6 requires vite 8, which conflicts with vitest 4 — pinned to 5), jsdom, @testing-library/{react,user-event,jest-dom}, @types/react(-dom).
+- Fonts self-hosted under public/fonts/: glass-tty-vt220.woff2 (public domain, Slavinsky; TTF converted via `npx ttf2woff2` since no pip/fonttools available) + VT323 woff2 (OFL) + provenance/license notes.
+- vitest.config appends an `app` jsdom project beside `engine`; the React plugin is applied at root (no-op for the node engine tests); the three build tests opt out of jsdom with `// @vitest-environment node`.
+- Testing Library auto-cleanup does not run with vitest globals off; `test/app/setup.ts` calls `afterEach(cleanup)`.
+- Review hardening: the no-raw-paths scanner now catches backtick templates, `src={...}`, `new URL`/`fetch` backtick forms, and `'/' + ...` concatenation (with a teeth-proof test), since sections 07/10 write dynamic asset URLs that way. main.tsx throws on a missing #root.
