@@ -10,6 +10,12 @@ import type {
   DeskCheckEntry,
   SeedDefinition,
 } from '../missions/types'
+import type { OutlookPayload } from '../missions/outlook/content'
+import {
+  OUTLOOK_PAYLOAD_R04,
+  OUTLOOK_PAYLOAD_K11,
+  OUTLOOK_PAYLOAD_T58,
+} from '../missions/outlook/payloads'
 
 export const MISSION_IDS = ['outlook', 'flights', 'bank'] as const
 export const FINALE_ID = 'finale'
@@ -55,6 +61,7 @@ interface SeedSpec {
   records: EvidenceRecord[]
   deskChecks: DeskCheckEntry[]
   clueRecords: ClueRecordEntry[]
+  outlookPayload: OutlookPayload
   openExceptionsBaseline: number
 }
 
@@ -67,7 +74,12 @@ function build(spec: SeedSpec): SeedDefinition {
     records: spec.records,
     deskChecks: spec.deskChecks,
     clueRecords: spec.clueRecords,
-    missionPayloads: { outlook: null, flights: null, bank: null, finale: null },
+    missionPayloads: {
+      outlook: spec.outlookPayload,
+      flights: null,
+      bank: null,
+      finale: null,
+    },
     schedules: {
       outlook: [
         ...milestones(),
@@ -271,6 +283,7 @@ const seedOne = build({
     { recordId: 'F06', clueId: CLUE_IDS.restriction },
     { recordId: 'B04', clueId: CLUE_IDS.ledgerHold },
   ],
+  outlookPayload: OUTLOOK_PAYLOAD_R04,
   openExceptionsBaseline: 12,
 })
 
@@ -375,6 +388,7 @@ const seedTwo = build({
     { recordId: 'G12', clueId: CLUE_IDS.restriction },
     { recordId: 'H03', clueId: CLUE_IDS.ledgerHold },
   ],
+  outlookPayload: OUTLOOK_PAYLOAD_K11,
   openExceptionsBaseline: 14,
 })
 
@@ -479,6 +493,7 @@ const seedThree = build({
     { recordId: 'J15', clueId: CLUE_IDS.restriction },
     { recordId: 'K08', clueId: CLUE_IDS.ledgerHold },
   ],
+  outlookPayload: OUTLOOK_PAYLOAD_T58,
   openExceptionsBaseline: 10,
 })
 

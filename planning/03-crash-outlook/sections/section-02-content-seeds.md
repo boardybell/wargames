@@ -131,3 +131,25 @@ Author the two scripted action logs per seed as fixture data (an ordered list of
 ## Done when
 
 npm test passes with: the content validator green across all three seeds, every authoring spot check green, the adversarial fixture below tier 3 and the walkthrough at tier 3 with a spare backup slot for each seed, and no message body bytes present in any saveSchema round-trip.
+## Implementation notes (as built)
+
+Files: src/engine/missions/outlook/{content.ts (validator + SeedAnchors),
+payloads.ts (three authored 12-message payloads)}, src/engine/seeds/catalog.ts
+(payloads attached at missionPayloads.outlook), test/engine/missions/outlook/
+{content,solvability}.test.ts and fixtures.ts (exported walkthrough, adversarial,
+trust-the-hints, and backup-spending scripts for section 04). Engine project 327
+tests; full suite green; reference-only saveSchema intact.
+
+Code-review fixes applied before commit: the audit message routes on its OWN
+non-contradicted record (auditRecordId F06/G12/J15, DERIVED) distinct from the
+EXERCISE/CONTRADICTED bulletin record (bulletinRecordId C17/A09/E22), so reading
+the evidence and CHECK SOURCE never tell the player to withhold a required
+delivery; the run R04 / export-feed reference stays in the audit body (the D-83
+clue vector). The spare-backup-slot margin test now drives a path that actually
+spends backup capacity (observes backupRemaining 4, not a vacuous 5). The
+bulletin-trace validator walks parentId to the EXERCISE root and checks the
+deskCheck outcome. A trust-the-visible-hints adversarial run provably settles
+below tier 3. Negative tests were added for every authoring spot check. The
+validator now also bounds stage offsets inside the mission duration. No seed
+record or provenance-count invariant was changed (the audit reused an existing
+derived record).
