@@ -178,3 +178,12 @@ An explicit ACKNOWLEDGE control, both a button in the ActionBar and an ACKNOWLED
 ## Definition of done
 
 All tests in this section's TDD block pass under `npm test` (jsdom project), alongside the existing engine tests. The fallback mission frame renders and operates against the `@engine/testing` test-double mission: screen registration, action dispatch through buttons and commands with identical action values, settlement into debrief, ACKNOWLEDGE back to menu, and the fourth-row unlock after the third acknowledgment. No em-dashes anywhere in code, comments, copy, or tests.
+## As Built (section-04 implementation)
+
+Built and committed. 314 tests green; tsc, eslint, and build clean.
+
+- src/app/terminal/: commandGrammar, helpRegistry (idempotent registerDefaultVerbs), TerminalText/StatusLine/DetailPane, MenuRows (numeric/arrows+Enter/tap to one onSelect), ActionBar (send + inline rejection), CommandInput (parse to action/ui/error, capped scrollback).
+- src/app/screens/: precedence (pure resolver) + inputStack (live capture-phase wiring) + ScreenRouter (phase->screen, overlays, moveFocusTo, keyed mission screens), screenRegistry, MenuScreen, DebriefScreen, FallbackMissionFrame, pendingDebrief (shared by the ACKNOWLEDGE button and command).
+- src/app/a11y/: keyHandler (shouldHandleKey), focus (moveFocusTo), announce (stand-ins; section 09 refines).
+- Review fixes: the precedence stack is wired into a live capture handler so a higher layer (dialog/prompt/type-in) swallows a key before MenuRows sees it; mission screens are keyed by id; verb registration is idempotent; the pending-debrief selection is shared; command output is bounded.
+- Note: the finale row dispatches START_MISSION under FINALE_ID (correct; split 06 registers the finale mission module). App.tsx is not yet rewired to ScreenRouter (no real ctx/missions until splits 03-06); ScreenRouter is standalone-tested.

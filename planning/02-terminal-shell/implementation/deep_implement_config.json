@@ -26,6 +26,10 @@
     "section-02-engine-binding": {
       "status": "complete",
       "commit_hash": "5074ef6"
+    },
+    "section-03-crt-theme": {
+      "status": "complete",
+      "commit_hash": "b9ac897"
     }
   },
   "pre_commit": {

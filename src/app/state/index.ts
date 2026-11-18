@@ -12,7 +12,7 @@ import {
 } from './saveBinding'
 import { registerMultiTab } from './multiTab'
 
-export { useCampaign } from './store'
+export { useCampaign, getMissionOrder, getState } from './store'
 export { send, type SendResult } from './send'
 export { wake } from './wake'
 export { onEngineEvent, type EngineEventConsumer, type Unsubscribe } from './events'

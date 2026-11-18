@@ -21,6 +21,11 @@ export function getContext(): EngineContext {
   return context
 }
 
+/** The mission order the menu renders in, from the active context. */
+export function getMissionOrder(): readonly string[] {
+  return getContext().missionOrder
+}
+
 /** Internal: the only callers are send, wake, and init. */
 export function setState(next: CampaignState): void {
   state = next
