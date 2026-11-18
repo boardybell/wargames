@@ -16,3 +16,18 @@ export {
   type PrecedenceState,
   type PrecedenceResult,
 } from './precedence'
+export { DialogLayer } from './DialogLayer'
+export { PauseDialog } from './PauseDialog'
+export { SettingsDialog } from './SettingsDialog'
+export { NewCampaignDialog } from './NewCampaignDialog'
+export { HelpOverlay } from './HelpOverlay'
+export { CorruptSaveNotice } from './CorruptSaveNotice'
+export {
+  openOverlay,
+  closeOverlay,
+  getOverlay,
+  useOverlay,
+  dismissCorrupt,
+  isCorruptDismissed,
+  type OverlayKind,
+} from './dialogState'

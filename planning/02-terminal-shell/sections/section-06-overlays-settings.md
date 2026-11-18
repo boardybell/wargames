@@ -146,3 +146,12 @@ Driven solely by the recovery flag the state binding surfaces. `'recovered-backu
 ## Definition of done
 
 All five test files green under `npm test` in the jsdom project; dialogs open and close with correct focus behavior; extended-time lock and the three-seed constraint asserted; no engine action dispatched by any dialog except FORFEIT_MISSION (confirmed), NEW_CAMPAIGN (confirmed), and the extended-time preference (unlocked only). No em-dashes in any copy.
+## As Built (section-06 implementation)
+
+Built and committed. 361 tests green; tsc, eslint, and build clean.
+
+- Five native <dialog> overlays through a shared Dialog wrapper (aria-labelledby, explicit initial focus, focus restore, inputStack dialog-layer wiring, cancel guard, and an unmount safety net): PauseDialog (typed End-Mission forfeit, no faked engine pause, Escape backs out of the confirmation), SettingsDialog (four audio toggles sharing one master value with the hero prompt, motion override, reduce-glow class, extended-time lock, New Campaign entry), NewCampaignDialog (exactly the three catalog seeds, no free input), HelpOverlay (context HELP registry), CorruptSaveNotice (recovery-flag driven, session-dismissed).
+- dialogState (overlay + corrupt-dismissed), wired through ScreenRouter (openOverlay, DialogLayer as a sibling of the screen root, Escape/MENU open pause during a mission).
+- Stand-ins extended for sections 07/09: audio prefs {master,voice,effects,ambience} with master as the single hero/settings value; motion override; reduce-glow store; GlossaryTerm.
+- Engine fix: loadCampaign returns clean for an empty store (first-time), reset only for a present-but-corrupt or erroring save, so a new player is never told their save could not be recovered.
+- Review fix: CorruptSaveNotice keeps mounted and closes by flipping open (an unmount-on-dismiss would strand the precedence stack and deafen the app to keys); the Dialog wrapper also releases the stack on unmount-while-open.

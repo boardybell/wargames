@@ -1,0 +1,50 @@
+/* Native dialog styling on the CRT theme tokens. No new effects; dialogs sit
+   above the scanline overlay with the luminous border. */
+.crt-dialog {
+  background: var(--color-glass);
+  color: var(--color-glyph);
+  font-family: var(--font-terminal);
+  border: 1px solid var(--color-dim);
+  box-shadow:
+    0 0 2px var(--color-glyph),
+    0 0 18px rgba(108, 182, 255, 0.25);
+  padding: 1.5rem;
+  max-width: min(90vw, 40rem);
+}
+.crt-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.6);
+}
+.crt-dialog h2 {
+  margin-top: 0;
+  letter-spacing: 0.1em;
+}
+.crt-dialog fieldset {
+  border: 1px solid var(--color-dim);
+  margin: 0.75rem 0;
+}
+.crt-dialog label {
+  display: block;
+  padding: 0.15rem 0;
+}
+.dialog-actions {
+  display: flex;
+  gap: 1ch;
+  margin-top: 1rem;
+}
+.crt-dialog button {
+  background: transparent;
+  border: 1px solid var(--color-dim);
+  color: var(--color-glyph);
+  font: inherit;
+  padding: 0.2em 0.8em;
+  cursor: pointer;
+}
+.crt-dialog button:disabled {
+  color: var(--color-dim);
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+.glossary-term {
+  text-decoration: underline dotted;
+  cursor: help;
+}

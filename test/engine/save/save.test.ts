@@ -99,6 +99,12 @@ describe('load fallthrough', () => {
     expect(result.state).not.toBeNull()
   })
 
+  it('an empty store is clean, not reset (first-time load, no notice)', () => {
+    const port = memoryPort({})
+    const result = loadCampaign(port, registry)
+    expect(result).toEqual({ state: null, recovery: 'clean' })
+  })
+
   it('corrupt both falls to fresh with reset flag', () => {
     const port = memoryPort({
       [PRIMARY_KEY]: 'garbage',

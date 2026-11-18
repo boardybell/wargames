@@ -4,6 +4,8 @@
 // master sound preference both the sound prompt and the settings switch read
 // and write (never a shadow copy), and no-op cue hooks section 07 fills in.
 
+import { useSyncExternalStore } from 'react'
+
 const PREF_KEY = 'wargames.sound'
 
 export interface AudioPort {
@@ -50,39 +52,93 @@ export function resumeAudio(): void {
 
 export type SoundPreference = 'on' | 'off'
 
+// The full preference set section 07 persists. master is the single value the
+// diegetic hero prompt and the settings master switch both back (no shadow
+// copy). A corrupt read falls to muted defaults.
+export interface AudioPrefs {
+  readonly master: boolean
+  readonly voice: boolean
+  readonly effects: boolean
+  readonly ambience: boolean
+}
+
+const PREFS_KEY = 'wargames.audio.prefs'
+const DEFAULT_PREFS: AudioPrefs = {
+  master: false,
+  voice: true,
+  effects: true,
+  ambience: true,
+}
+
 const prefListeners = new Set<() => void>()
 // In-memory is the session source of truth (and works where localStorage is
 // blocked, e.g. Safari private mode or a headless test env); localStorage is
 // the cross-reload persistence layer, read lazily and written on set.
-let pref: SoundPreference | null | undefined
+let prefs: AudioPrefs | undefined
+// Whether master was ever explicitly configured (so the hero prompt, which
+// gates on this, does not reappear once answered).
+let masterConfigured: boolean | undefined
 
-function loadPref(): SoundPreference | null {
-  if (pref !== undefined) return pref
+function load(): AudioPrefs {
+  if (prefs !== undefined) return prefs
   try {
-    const raw = window.localStorage.getItem(PREF_KEY)
-    pref = raw === 'on' || raw === 'off' ? raw : null
+    const raw = window.localStorage.getItem(PREFS_KEY)
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<AudioPrefs> & {
+        configured?: boolean
+      }
+      prefs = {
+        master: parsed.master ?? DEFAULT_PREFS.master,
+        voice: parsed.voice ?? DEFAULT_PREFS.voice,
+        effects: parsed.effects ?? DEFAULT_PREFS.effects,
+        ambience: parsed.ambience ?? DEFAULT_PREFS.ambience,
+      }
+      masterConfigured = parsed.configured ?? true
+      return prefs
+    }
   } catch {
-    pref = null
+    // Corrupt or unavailable: muted defaults.
   }
-  return pref
+  prefs = DEFAULT_PREFS
+  masterConfigured = false
+  return prefs
+}
+
+function persist(): void {
+  try {
+    window.localStorage.setItem(
+      PREFS_KEY,
+      JSON.stringify({ ...load(), configured: masterConfigured }),
+    )
+  } catch {
+    // In-memory still backs the session.
+  }
+  for (const listener of prefListeners) listener()
+}
+
+export function getAudioPrefs(): AudioPrefs {
+  return load()
+}
+
+export function setAudioPref(key: keyof AudioPrefs, value: boolean): void {
+  prefs = { ...load(), [key]: value }
+  if (key === 'master') masterConfigured = true
+  persist()
 }
 
 export function getSoundPreference(): SoundPreference | null {
-  return loadPref()
+  load()
+  if (!masterConfigured) return null
+  return load().master ? 'on' : 'off'
 }
 
 export function hasSoundPreference(): boolean {
-  return loadPref() !== null
+  load()
+  return masterConfigured === true
 }
 
 export function setSoundPreference(value: SoundPreference): void {
-  pref = value
-  try {
-    window.localStorage.setItem(PREF_KEY, value)
-  } catch {
-    // Persistence unavailable; the in-memory value still backs this session.
-  }
-  for (const listener of prefListeners) listener()
+  setAudioPref('master', value === 'on')
 }
 
 export function onSoundPreference(listener: () => void): () => void {
@@ -90,6 +146,11 @@ export function onSoundPreference(listener: () => void): () => void {
   return () => {
     prefListeners.delete(listener)
   }
+}
+
+/** Reactive view of the audio prefs for the settings dialog. */
+export function useAudioPrefs(): AudioPrefs {
+  return useSyncExternalStore(onSoundPreference, getAudioPrefs, getAudioPrefs)
 }
 
 // Cue hooks: section 07 fills these with real buffers. No-ops keep the hero
@@ -106,8 +167,10 @@ export function playKeyTick(): void {
 export function __resetAudio(): void {
   port = { resume: () => void getAudioContext()?.resume() }
   prefListeners.clear()
-  pref = null
+  prefs = undefined
+  masterConfigured = undefined
   try {
+    window.localStorage.removeItem(PREFS_KEY)
     window.localStorage.removeItem(PREF_KEY)
   } catch {
     // ignore

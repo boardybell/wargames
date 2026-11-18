@@ -34,6 +34,10 @@
     "section-04-terminal-framework": {
       "status": "complete",
       "commit_hash": "355ece6"
+    },
+    "section-05-hero-pushin": {
+      "status": "complete",
+      "commit_hash": "af56030"
     }
   },
   "pre_commit": {

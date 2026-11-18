@@ -4,7 +4,7 @@
 // A shared CommandInput at the foot is wired to the active screen id so the
 // grammar resolves screen verbs correctly, and its UI commands open overlays
 // or acknowledge a debrief.
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { getState, send, useCampaign } from '../state'
 import { moveFocusTo } from '../a11y/focus'
@@ -16,6 +16,8 @@ import { FallbackMissionFrame } from './FallbackMissionFrame'
 import { resolveMissionScreen } from './screenRegistry'
 import { pendingDebrief } from './pendingDebrief'
 import { handleCapturedKey } from './inputStack'
+import { openOverlay, closeOverlay, getOverlay } from './dialogState'
+import { DialogLayer } from './DialogLayer'
 import type { CampaignState } from '@engine'
 
 export type OverlayId = 'settings' | 'help'
@@ -43,7 +45,6 @@ export interface ScreenRouterProps {
 export function ScreenRouter({ onListGames, onSetSound }: ScreenRouterProps) {
   const state = useCampaign()
   const screenId = screenIdForState(state)
-  const [overlay, setOverlay] = useState<OverlayId | null>(null)
   const rootRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -53,13 +54,13 @@ export function ScreenRouter({ onListGames, onSetSound }: ScreenRouterProps) {
   const handleUiCommand = (command: LocalUiCommand): void => {
     switch (command.kind) {
       case 'OPEN_HELP':
-        setOverlay('help')
+        openOverlay('help')
         break
       case 'OPEN_SETTINGS':
-        setOverlay('settings')
+        openOverlay('settings')
         break
       case 'CLOSE_OVERLAY':
-        setOverlay(null)
+        closeOverlay()
         break
       case 'ACKNOWLEDGE': {
         const pending = pendingDebrief(getState())
@@ -77,30 +78,50 @@ export function ScreenRouter({ onListGames, onSetSound }: ScreenRouterProps) {
     }
   }
 
+  const inMission = screenId.startsWith('mission:')
+
   // Capture-phase: resolve precedence before the event reaches the screen's
   // own handlers, so a running type-in or an active prompt swallows the key.
   const onKeyDownCapture = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
     if (handleCapturedKey(event.nativeEvent) === 'consumed') {
       event.preventDefault()
       event.stopPropagation()
+      return
+    }
+    // Escape during a mission opens the pause dialog (there is no dialog open,
+    // or the dialog layer would have consumed the key above).
+    if (event.key === 'Escape' && inMission && getOverlay() === null) {
+      event.preventDefault()
+      openOverlay('pause')
     }
   }
 
   return (
-    <div
-      className="screen-root"
-      data-testid="screen-root"
-      data-active-screen={screenId}
-      tabIndex={-1}
-      ref={rootRef}
-      onKeyDownCapture={onKeyDownCapture}
-    >
-      <ActiveScreen screenId={screenId} state={state} />
-      <CommandInput activeScreen={screenId} onUiCommand={handleUiCommand} />
-      {overlay !== null && (
-        <div data-testid="overlay-slot" data-overlay={overlay} />
-      )}
-    </div>
+    <>
+      <div
+        className="screen-root"
+        data-testid="screen-root"
+        data-active-screen={screenId}
+        tabIndex={-1}
+        ref={rootRef}
+        onKeyDownCapture={onKeyDownCapture}
+      >
+        {inMission && (
+          <button
+            type="button"
+            data-testid="menu-control"
+            onClick={() => openOverlay('pause')}
+          >
+            MENU
+          </button>
+        )}
+        <ActiveScreen screenId={screenId} state={state} />
+        <CommandInput activeScreen={screenId} onUiCommand={handleUiCommand} />
+      </div>
+      {/* Overlays are native top-layer dialogs; they sit outside the
+          focus-managed screen root. */}
+      <DialogLayer activeScreen={screenId} />
+    </>
   )
 }
 

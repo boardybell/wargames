@@ -223,8 +223,22 @@ function tryLoad(
   }
 }
 
-/** Primary then backup then fresh. The monotonic merge guard runs on
- *  both slot paths. The recovery flag is the shell's visible reset path. */
+function slotStatus(
+  port: StoragePort,
+  key: string,
+): 'empty' | 'present' | 'error' {
+  try {
+    return port.read(key) === null ? 'empty' : 'present'
+  } catch {
+    return 'error'
+  }
+}
+
+/** Primary then backup then fresh. The monotonic merge guard runs on both
+ *  slot paths. The recovery flag is the shell's visible notice: 'clean' also
+ *  covers a first-time load with no save at all (both slots empty), so a brand
+ *  new player is never told their save could not be recovered. 'reset' means a
+ *  save was actually present or the storage errored, but nothing loaded. */
 export function loadCampaign(
   port: StoragePort,
   registry: MissionRegistry,
@@ -234,7 +248,10 @@ export function loadCampaign(
   if (primary) return { state: primary, recovery: 'clean' }
   const backup = tryLoad(port, BACKUP_KEY, registry, inSession)
   if (backup) return { state: backup, recovery: 'recovered-backup' }
-  return { state: null, recovery: 'reset' }
+  const bothEmpty =
+    slotStatus(port, PRIMARY_KEY) === 'empty' &&
+    slotStatus(port, BACKUP_KEY) === 'empty'
+  return { state: null, recovery: bothEmpty ? 'clean' : 'reset' }
 }
 
 export interface PersistResult {
