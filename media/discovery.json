@@ -1,0 +1,11 @@
+{
+  "probedAt": "2026-11-17",
+  "imageClass": {
+    "rung": 1,
+    "method": "codex-direct",
+    "evidence": "codex exec produced a genuine 1254x1254 PNG raster via bundled image generation",
+    "model": "gpt-6-astra",
+    "effort": "xhigh"
+  },
+  "note": "Rung 1 confirmed: autonomous codex-direct file generation available for all art slots."
+}

@@ -30,6 +30,10 @@
     "section-03-crt-theme": {
       "status": "complete",
       "commit_hash": "b9ac897"
+    },
+    "section-04-terminal-framework": {
+      "status": "complete",
+      "commit_hash": "355ece6"
     }
   },
   "pre_commit": {

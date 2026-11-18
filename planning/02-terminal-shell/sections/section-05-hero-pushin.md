@@ -256,3 +256,11 @@ visuals, audio audibility, VoiceOver, and device widths are explicitly out of
 scope here: they belong to the deployment split's Playwright and manual pass.
 Locally, the push-in register and feel at desktop and phone widths joins the
 manual smoke checklist owned by section-10.
+## As Built (section-05 implementation)
+
+Built and committed. 341 tests green; tsc, eslint, and build clean.
+
+- src/app/hero/: glassRect (pure cover geometry), heroCrop (HeroCrop metadata), pushIn (WAAPI 700ms dolly + 450ms crossfade + reduced-motion 250ms + single-use guard + onFinish safety net), HeroScene (four activation routes, synchronous audio resume, decorative photo, greeting positioned via computeGlassRect with resize recompute), soundPrompt (diegetic ENABLE SOUND? Y/N at the precedence prompt layer, single answer + latch), loadRouting (hero vs engine by phase), HeroStage (the integration: routing -> hero -> push-in -> terminal + sound prompt).
+- Stand-ins (sections 07/10 refine): src/app/audio (resume port, single in-memory+localStorage sound preference) and src/app/art (hero slot sources via urlFor).
+- Real WOPR hero art generated through the rung-1 codex lane and shipped: public/art/hero-desktop.{avif,jpg} and hero-portrait.{avif,jpg} (AVIF ~32-36KB, same scene, a true portrait reframe). media/src is gitignored; the export tool is media/tools/export-art.mjs (sharp).
+- Deferred: the live App/main boot (init with a real EngineContext) is gated on the mission modules from splits 03-06; HeroStage is the built, tested integration ready for it.

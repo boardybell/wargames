@@ -1,0 +1,74 @@
+/* The full-viewport activation scene. The photo covers the viewport; the
+   greeting sits over the computed glass point; the small sound control lives
+   in a corner outside the activation button. Structural only; palette and type
+   come from the CRT theme. */
+.hero-button {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: var(--color-glass);
+  color: var(--color-glyph);
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.hero-photo {
+  position: absolute;
+  inset: 0;
+}
+.hero-photo picture,
+.hero-photo img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+}
+
+/* Graded placeholder behind the image, so a missing asset degrades to a
+   tinted glass rather than a broken-image icon. */
+.hero-photo {
+  background:
+    radial-gradient(
+      ellipse at center,
+      rgba(108, 182, 255, 0.08),
+      rgba(5, 10, 20, 1) 70%
+    ),
+    var(--color-glass);
+}
+
+.hero-greeting {
+  position: absolute;
+  font-family: var(--font-terminal);
+  color: var(--color-glyph);
+  text-shadow: 0 0 4px rgba(108, 182, 255, 0.5);
+  white-space: nowrap;
+  font-size: clamp(0.8rem, 2.5vw, 1.4rem);
+}
+
+.hero-label {
+  position: absolute;
+  left: 50%;
+  bottom: 8%;
+  transform: translateX(-50%);
+  font-family: var(--font-terminal);
+  letter-spacing: 0.2em;
+  color: var(--color-dim);
+}
+
+.hero-sound {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 2;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-greeting {
+    text-shadow: 0 0 1px var(--color-glyph);
+  }
+}
