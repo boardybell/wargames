@@ -50,6 +50,10 @@
     "section-08-save": {
       "status": "complete",
       "commit_hash": "1940b47"
+    },
+    "section-09-branch": {
+      "status": "complete",
+      "commit_hash": "f1c96b4"
     }
   },
   "pre_commit": {

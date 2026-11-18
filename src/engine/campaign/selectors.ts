@@ -24,6 +24,16 @@ export function selectSettledOutcome(
   return state.settled.find((s) => s.missionId === missionId) ?? null
 }
 
+/** Per-mission settled metrics for the finale's projections and the
+ *  earned-why readback (amendment 4). Null when the mission has not
+ *  settled; the returned record is the outcome's own metrics object. */
+export function selectSettledMetrics(
+  state: CampaignState,
+  missionId: string,
+): Readonly<Record<string, number>> | null {
+  return state.settled.find((s) => s.missionId === missionId)?.metrics ?? null
+}
+
 /** Real service outcomes: integer damage the same orders produced.
  *  Mission modules express them through the service_cost metric. */
 export function selectServiceOutcomes(state: CampaignState): number {

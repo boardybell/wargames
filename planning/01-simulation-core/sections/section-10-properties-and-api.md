@@ -143,3 +143,22 @@ Public API additions: selectSettledMetrics (per-mission settled
 metrics for the finale's projections and earned-why readback). The
 finale SettledOutcome carries endingId; the import-surface snapshot
 and the model suite's settlement invariants include it.
+
+## As Built (section-10 implementation)
+
+Implemented and committed. FINAL section of the 01-simulation-core split.
+219 engine tests green; tsc and eslint clean; coverage lines 97%+ / branches 86%+ (thresholds 80 / 75).
+
+### Public surface deviations from the plan
+- `advanceCampaign` is exported as the shell wake entry (returns `{ state, emitted }`); the plan's `advanceToNow` name refers to the time-module queue-drain primitive, which stays internal.
+- The plan's view selectors (active-mission view, debrief payloads, case file, recovery flag) are SHELL-layer concerns owned by split 02. The engine exposes the raw state fields (`inspectedRecords`, `sourceChecks`), `LoadResult.recovery`, and per-mission `MissionModule.debrief`; the shell composes the views.
+- Public functions keep a leading `EngineContext` (the ctx threaded during implementation); `EngineContext`, `MissionModule`, `MissionRegistry`, `SeedDefinition` are exported so later splits can implement missions and assemble a ctx. `MissionRuntime`, `AppliedMarker`, `BriefingLine` are NOT exported (read via `CampaignState`). The runtime import-surface test pins value exports only; the type surface is not snapshot-guarded (known limitation).
+
+### Property-suite scope
+All five suites run against the permanent test-double mission (alpha/beta/gamma); the real seed missions (outlook/flights/bank) arrive in splits 03-06 with their own walkthrough fixtures.
+
+### Review-driven strengthening
+- six-permutation: replaced a tautological static-constant chronology hash with a `terminalFingerprint` derived from each play order's real end state (settled facts, acks, clues, finale gate), plus a negative anchor. Consequence folding is deliberately order-dependent (each consequence applies once, to the next mission started), so the invariant asserted is the order-independent terminal outcome facts.
+- model-commands: rejected-action oracle also compares the emitted stream to a pure advance; NEW_CAMPAIGN positively asserts a clean reset before clearing accumulators.
+- sabotage: taints a schema-permitted field (`inputLog`) so a future substate re-validation cannot wash it out.
+- Added per-trail JSON-safety, a stuck-hash negative anchor, and a snapshot-replay emitted-tail assertion.
