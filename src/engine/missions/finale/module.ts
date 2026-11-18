@@ -34,7 +34,7 @@ import {
   validateFinaleContent,
   fieldReportLegal,
 } from './caseBuilder'
-import { deriveEndingId } from './endings'
+import { resolveEnding } from './endings'
 import { finaleSaveSchema } from './types'
 import type {
   CaseFileCheck,
@@ -357,12 +357,11 @@ export function makeFinaleMission(
       const repeatedOrder =
         cause === 'timeout' || cause === 'forfeit' || committed === 'repeat'
       const tier = repeatedOrder ? 'failed' : 'full'
-      // SECTION-02 SEAM: endings.ts derives the real endingId and earned-why
-      // readback from settled metrics; this inert map pins the shape so the
-      // committed action and cause section 02 derives from are present here.
-      const endingId = repeatedOrder
-        ? deriveEndingId('repeat')
-        : deriveEndingId(committed)
+      // Section 02 wiring: resolveEnding is the pure cause-plus-action mapping
+      // (staged->recovery, hold->containment, repeat/timeout/forfeit->failure).
+      // The earned-why readback (deriveEarnedWhy) is derived shell-side from the
+      // settled metrics; the endingId carried here is the selector it keys on.
+      const endingId = resolveEnding(committed, cause).endingId
       return {
         missionId: FINALE_MISSION_ID,
         cause,
