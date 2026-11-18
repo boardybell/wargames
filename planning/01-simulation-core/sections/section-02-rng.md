@@ -58,3 +58,17 @@ Mutation checks should use deep equality on the input state before and after eac
 ## Acceptance
 
 Section is done when all five test groups above pass under `npm test`, `tsc --noEmit` stays clean, the ESLint purity gate passes on `src/engine/rng/` (no `Math.random`, `Date.now`, `performance.now`, or DOM globals), and no module outside `src/engine/rng/` needs a pure-rand import to consume randomness. Coverage counts toward the engine thresholds (lines 80, branches 75) established in section-01.
+
+## As built (2026-11-17)
+
+pure-rand 8.4.2 ships an IMPERATIVE v8 API (next() returns a number and
+mutates; uniformInt(rng, from, to) draws by mutating; jump() mutates in
+place; xoroshiro128plusFromState restores; subpath exports only), so the
+plan's value-oriented [value, nextRng] surface is implemented as a
+wrapper that materializes a fresh local generator per call from a
+defensive copy of the JSON-safe { words } state. Review hardening:
+bounds, seed, stream-index, and state-shape validation all throw
+attributably; stream separation tested by shared-contiguous-window
+detection. Files: src/engine/rng/index.ts,
+test/engine/rng/rng.test.ts (15 tests). Full trail in
+implementation/code_review/section-02-*.md.

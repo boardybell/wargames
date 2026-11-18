@@ -18,7 +18,12 @@
     "section-09-branch",
     "section-10-properties-and-api"
   ],
-  "sections_state": {},
+  "sections_state": {
+    "section-01-foundation": {
+      "status": "complete",
+      "commit_hash": "a26a659"
+    }
+  },
   "pre_commit": {
     "present": false,
     "type": "none",
