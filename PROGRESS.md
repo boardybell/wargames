@@ -35,8 +35,8 @@ and campaign-level scoring (where WOPR's tally-vs-reality divergence pays off).
 | retrofit | all 3 missions stamp the WOPR-vs-reality metrics; finale viability recalibrated | COMMITTED |
 | 01 finale-module | case builder, field-report bounded wait, commit vs timeout | COMMITTED |
 | 03 joshua-catalog | the WOPR/JOSHUA voice: every line, completeness-gated | COMMITTED |
-| 02 projections-endings | three projected futures + three endings from settled history | building |
-| 04 screens-fixtures | the finale screens + acceptance fixtures | not started |
+| 02 projections-endings | three projected futures + three endings from settled history | COMMITTED |
+| 04 screens-fixtures | the finale screens + acceptance fixtures | building |
 
 ## How it is built (per section)
 
