@@ -4,9 +4,9 @@ Live board. Open it in an editor and it updates as each piece lands. The
 authoritative record is `git log --oneline` and the test count; this is the
 human-readable view.
 
-Last updated: mission 2 (GROUND ALL FLIGHTS) DONE and committed; mission 3
-(FREEZE BANK ACCOUNTS) in progress: engine module + content/seeds + screen
-committed; acceptance-gate fixtures being built (the last section).
+Last updated: missions 1-3 all DONE and committed (CRASH OUTLOOK, GROUND ALL
+FLIGHTS, FREEZE BANK ACCOUNTS). Starting split 06, the global-failsafe finale
+and campaign-level scoring (where WOPR's tally-vs-reality divergence pays off).
 
 ## The two tracks
 
@@ -23,19 +23,19 @@ committed; acceptance-gate fixtures being built (the last section).
 | 02 terminal-shell | CRT terminal, screens, audio, a11y, art slots | DONE |
 | 03 crash-outlook (mission 1) | inbox-triage puzzle | DONE |
 | 04 ground-all-flights (mission 2) | air-traffic routing under a storm | DONE |
-| 05 freeze-bank-accounts (mission 3) | bank-run ledger | module + content/seeds committed; screen + fixtures in flight |
-| 06 global-failsafe (finale) | not started |
+| 05 freeze-bank-accounts (mission 3) | bank-run ledger | DONE |
+| 06 global-failsafe (finale) | WOPR takeover + campaign-level scoring | starting |
 | 07 art-audio-pipeline (media) | not started |
 | 08 deploy-and-review | not started |
 
-## Mission 3 sections (current split)
+## Mission 3 sections (DONE)
 
 | Section | What | Status |
 |---------|------|--------|
 | 01 module-rules | engine mission module (accounts, confidence, holds) | COMMITTED |
 | 02 content-seeds | 3 seeds, 10 accounts, 18 requests, validator, solvability | COMMITTED |
 | 03 screen-ledger | ledger / feed / payments views, WOPR prediction line | COMMITTED |
-| 04 fixtures-polish | acceptance gate (timeout/forfeit/collapsed, properties) | building |
+| 04 fixtures-polish | acceptance gate (timeout/forfeit/collapsed, properties) | COMMITTED |
 
 ## How it is built (per section)
 
