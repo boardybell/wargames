@@ -485,78 +485,117 @@ interface Strike {
   readonly at: number
 }
 
+// Stylized continent outlines so the board reads as a map, not floating dots.
+// Coordinates are in the same 0-100 x / 0-70 y space as the city positions.
+function WorldMap() {
+  return (
+    <svg
+      className="wg-map"
+      viewBox="0 0 100 70"
+      preserveAspectRatio="none"
+      aria-hidden="true"
+    >
+      <path d="M4 30 L10 18 L18 13 L26 15 L33 13 L41 18 L44 27 L40 33 L43 40 L38 50 L30 58 L22 60 L15 54 L13 44 L6 40 Z" />
+      <path d="M50 24 L57 15 L68 11 L80 12 L90 16 L97 22 L95 31 L88 36 L90 42 L82 46 L72 45 L63 47 L56 40 L52 32 Z" />
+    </svg>
+  )
+}
+
 function War({ side, onDone }: { side: 'US' | 'SU'; onDone: () => void }) {
+  const [phase, setPhase] = useState<'aim' | 'war'>('aim')
   const [defcon, setDefcon] = useState(5)
   const [hits, setHits] = useState<Set<string>>(new Set())
+  const [targets, setTargets] = useState<Set<string>>(new Set())
   const [arcs, setArcs] = useState<Strike[]>([])
   const [log, setLog] = useState<{ t: string; crit?: boolean }[]>([])
   const boardRef = useRef<HTMLDivElement>(null)
-  const started = useRef(false)
+  const timers = useRef<ReturnType<typeof setTimeout>[]>([])
 
-  useEffect(() => {
-    if (started.current) return
-    started.current = true
-    const timers: ReturnType<typeof setTimeout>[] = []
+  const enemySide = side === 'US' ? 'SU' : 'US'
+  const enemyLabel = side === 'US' ? 'SOVIET' : 'U.S.'
+  const ownCities = CITIES.filter((c) => c.side === side)
+  const enemyCities = CITIES.filter((c) => c.side === enemySide)
+
+  useEffect(() => () => timers.current.forEach(clearTimeout), [])
+
+  const toggleTarget = (name: string): void => {
+    if (phase !== 'aim') return
+    beep(760, 0.04)
+    setTargets((prev) => {
+      const next = new Set(prev)
+      if (next.has(name)) next.delete(name)
+      else next.add(name)
+      return next
+    })
+  }
+
+  const launch = (): void => {
+    if (phase !== 'aim' || targets.size === 0) return
+    setPhase('war')
+    siren()
     const t = (ms: number, fn: () => void): void => {
-      timers.push(setTimeout(fn, ms))
+      timers.current.push(setTimeout(fn, ms))
     }
-    const attacker = side === 'US' ? 'SU' : 'US'
-    const defender = side
-    const targets = CITIES.filter((c) => c.side === defender)
-    const sources = CITIES.filter((c) => c.side === attacker)
-
     const addLog = (line: string, crit = false): void =>
       setLog((l) => [...l.slice(-7), { t: line, crit }])
+    const shake = (): void => {
+      const el = boardRef.current
+      if (!el) return
+      el.classList.add('shake')
+      setTimeout(() => el.classList.remove('shake'), 500)
+    }
+    const targeted = enemyCities.filter((c) => targets.has(c.name))
 
-    t(200, () => addLog(`${side === 'US' ? 'U.S.' : 'USSR'} FIRST STRIKE AUTHORIZED. LAUNCH ORDER TRANSMITTED.`))
-    t(900, () => {
-      setDefcon(4)
-      beep(320, 0.28, 'square', 0.12)
-      addLog('SOVIET EARLY WARNING RADAR: INBOUND TRACKS DETECTED.')
+    addLog('LAUNCH ORDER CONFIRMED. BIRDS AWAY.', true)
+    // Outbound: your warheads reach the cities you targeted.
+    targeted.forEach((city, i) => {
+      const from = ownCities[i % ownCities.length]!
+      const at = 300 + i * 450
+      t(at, () => {
+        setArcs((a) => [...a, { from, to: city, at }])
+        beep(820 - i * 30, 0.05, 'sawtooth', 0.04)
+      })
+      t(at + 560, () => {
+        setHits((h) => new Set(h).add(city.name))
+        thud()
+        shake()
+        addLog(`DETONATION: ${city.name}.`, true)
+      })
     })
-    t(1800, () => {
+
+    const retalStart = 900 + targeted.length * 450
+    t(retalStart - 400, () => {
       setDefcon(3)
       beep(260, 0.3, 'square', 0.13)
-      addLog('RETALIATORY LAUNCH DETECTED. 2,400 WARHEADS INBOUND.', true)
+      addLog(`${enemyLabel} EARLY WARNING: RETALIATORY LAUNCH DETECTED.`, true)
     })
-
-    // Volleys of strikes both ways.
-    const allStrikes: Strike[] = []
-    let k = 0
-    for (let i = 0; i < 9; i++) {
-      const from = (i % 2 === 0 ? sources : targets)[k % 6]!
-      const to = (i % 2 === 0 ? targets : sources)[(k + 2) % 6]!
-      allStrikes.push({ from, to, at: 1400 + i * 650 })
-      k++
-    }
-    allStrikes.forEach((s) => {
-      t(s.at, () => {
-        setArcs((a) => [...a, s])
-        beep(900 - Math.random() * 300, 0.05, 'sawtooth', 0.03)
+    // Inbound: the enemy answers against your hubs.
+    ownCities.forEach((city, i) => {
+      const from = enemyCities[i % enemyCities.length]!
+      const at = retalStart + i * 520
+      t(at, () => {
+        setArcs((a) => [...a, { from, to: city, at }])
+        beep(700 - i * 30, 0.05, 'sawtooth', 0.035)
       })
-      t(s.at + 520, () => {
-        setHits((h) => new Set(h).add(s.to.name))
+      t(at + 560, () => {
+        setHits((h) => new Set(h).add(city.name))
         thud()
-        boardRef.current?.parentElement?.parentElement?.classList.add('shake')
-        setTimeout(() => boardRef.current?.parentElement?.parentElement?.classList.remove('shake'), 500)
-        addLog(`DETONATION: ${s.to.name}.`, true)
+        shake()
+        addLog(`DETONATION: ${city.name}.`, true)
       })
     })
 
-    t(5200, () => {
-      setDefcon(2)
-      beep(210, 0.32, 'square', 0.14)
-    })
-    t(6600, () => {
+    const end = retalStart + ownCities.length * 520 + 900
+    t(end, () => {
       setDefcon(1)
       siren()
       addLog('DEFCON 1. GENERAL NUCLEAR WAR IN PROGRESS.', true)
     })
-    t(7600, () => addLog('WOPR HAS ASSUMED LAUNCH CONTROL. SIMULATING ALL REMAINING SCENARIOS...'))
-    t(8600, () => onDone())
-
-    return () => timers.forEach(clearTimeout)
-  }, [side, onDone])
+    t(end + 1100, () =>
+      addLog('WOPR HAS ASSUMED LAUNCH CONTROL. SIMULATING ALL REMAINING SCENARIOS...'),
+    )
+    t(end + 2100, () => onDone())
+  }
 
   return (
     <div className="wg-war">
@@ -566,6 +605,7 @@ function War({ side, onDone }: { side: 'US' | 'SU'; onDone: () => void }) {
         <span className="wg-dim">GLOBAL THERMONUCLEAR WAR / SIMULATION</span>
       </div>
       <div className="wg-board" ref={boardRef}>
+        <WorldMap />
         {arcs.map((s, i) => {
           const dx = s.to.x - s.from.x
           const dy = s.to.y - s.from.y
@@ -584,24 +624,53 @@ function War({ side, onDone }: { side: 'US' | 'SU'; onDone: () => void }) {
             />
           )
         })}
-        {CITIES.map((c) => (
-          <div
-            key={c.name}
-            className={hits.has(c.name) ? 'wg-city hit' : 'wg-city'}
-            style={{ left: `${c.x}%`, top: `${c.y}%` }}
-          >
-            <span className="dot" />
-            {c.name}
-          </div>
-        ))}
+        {CITIES.map((c) => {
+          const isEnemy = c.side === enemySide
+          const cls = [
+            'wg-city',
+            hits.has(c.name) ? 'hit' : '',
+            phase === 'aim' && isEnemy ? 'enemy' : '',
+            targets.has(c.name) ? 'targeted' : '',
+          ]
+            .filter(Boolean)
+            .join(' ')
+          return (
+            <div
+              key={c.name}
+              className={cls}
+              style={{ left: `${c.x}%`, top: `${c.y}%` }}
+              onClick={isEnemy ? () => toggleTarget(c.name) : undefined}
+            >
+              <span className="dot" />
+              {c.name}
+            </div>
+          )
+        })}
       </div>
-      <div className="wg-log">
-        {log.map((l, i) => (
-          <span key={i} className={l.crit ? 'crit' : undefined}>
-            {l.t}
+      {phase === 'aim' ? (
+        <div className="wg-aim">
+          <span className="wg-aim-prompt">
+            SELECT {enemyLabel} TARGETS: CLICK CITIES ON THE MAP
           </span>
-        ))}
-      </div>
+          <span className="wg-dim">{targets.size} TARGETED</span>
+          <button
+            type="button"
+            className="wg-launch"
+            onClick={launch}
+            disabled={targets.size === 0}
+          >
+            LAUNCH
+          </button>
+        </div>
+      ) : (
+        <div className="wg-log">
+          {log.map((l, i) => (
+            <span key={i} className={l.crit ? 'crit' : undefined}>
+              {l.t}
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

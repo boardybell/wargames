@@ -241,6 +241,81 @@ body,
     repeating-linear-gradient(0deg, rgba(108,182,255,0.05) 0 1px, transparent 1px 28px),
     repeating-linear-gradient(90deg, rgba(108,182,255,0.05) 0 1px, transparent 1px 28px);
 }
+.wg-map {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.wg-map path {
+  fill: rgba(108, 182, 255, 0.05);
+  stroke: rgba(108, 182, 255, 0.45);
+  stroke-width: 0.3;
+  filter: drop-shadow(0 0 2px rgba(108, 182, 255, 0.4));
+}
+/* A city the player can target in the aiming phase. */
+.wg-city.enemy {
+  cursor: crosshair;
+  pointer-events: auto;
+}
+.wg-city.enemy:hover {
+  color: var(--amber);
+  text-shadow: 0 0 8px var(--amber);
+}
+.wg-city.targeted {
+  color: var(--amber);
+  text-shadow: 0 0 10px var(--amber);
+}
+.wg-city.targeted .dot {
+  background: var(--amber);
+  box-shadow: 0 0 12px var(--amber);
+}
+.wg-city.targeted::after {
+  content: '';
+  position: absolute;
+  left: -7px;
+  top: -7px;
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--amber);
+  border-radius: 50%;
+  animation: wg-flash 1s ease infinite;
+}
+.wg-aim {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-top: 0.3rem;
+}
+.wg-aim-prompt {
+  color: var(--amber);
+  text-shadow: 0 0 6px var(--amber);
+  letter-spacing: 0.08em;
+  animation: wg-pulse 1.8s ease-in-out infinite;
+}
+.wg-launch {
+  font: inherit;
+  padding: 0.3rem 1.1rem;
+  letter-spacing: 0.2em;
+  color: var(--glass);
+  background: var(--red);
+  border: none;
+  cursor: pointer;
+  text-shadow: none;
+  box-shadow: 0 0 12px var(--red);
+}
+.wg-launch:disabled {
+  background: none;
+  color: var(--dim);
+  box-shadow: none;
+  border: 1px solid var(--dim);
+  cursor: not-allowed;
+}
+.wg-launch:not(:disabled):hover {
+  box-shadow: 0 0 20px var(--red);
+}
 .wg-city {
   position: absolute;
   transform: translate(-50%, -50%);
