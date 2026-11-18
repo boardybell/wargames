@@ -23,6 +23,13 @@ import {
   FLIGHTS_PAYLOAD_K11,
   FLIGHTS_PAYLOAD_T58,
 } from '../missions/flights/payloads'
+import type { BankPayload } from '../missions/bank/content'
+import { bankSchedule } from '../missions/bank/module'
+import {
+  BANK_PAYLOAD_R04,
+  BANK_PAYLOAD_K11,
+  BANK_PAYLOAD_T58,
+} from '../missions/bank/payloads'
 
 export const MISSION_IDS = ['outlook', 'flights', 'bank'] as const
 export const FINALE_ID = 'finale'
@@ -70,6 +77,7 @@ interface SeedSpec {
   clueRecords: ClueRecordEntry[]
   outlookPayload: OutlookPayload
   flightsPayload: FlightsPayload
+  bankPayload: BankPayload
   openExceptionsBaseline: number
 }
 
@@ -85,7 +93,7 @@ function build(spec: SeedSpec): SeedDefinition {
     missionPayloads: {
       outlook: spec.outlookPayload,
       flights: spec.flightsPayload,
-      bank: null,
+      bank: spec.bankPayload,
       finale: null,
     },
     schedules: {
@@ -111,30 +119,12 @@ function build(spec: SeedSpec): SeedDefinition {
       // and the end settle tick) plus the shared end-anchored warnings the
       // seed-validation invariant asserts on every mission.
       flights: [...milestones(), ...flightsSchedule(spec.flightsPayload)],
-      bank: [
-        ...milestones(),
-        {
-          id: 'tick-1',
-          offsetSeconds: 60,
-          anchor: 'start',
-          kind: 'confidenceTick',
-          payload: null,
-        },
-        {
-          id: 'tick-2',
-          offsetSeconds: 120,
-          anchor: 'start',
-          kind: 'confidenceTick',
-          payload: null,
-        },
-        {
-          id: 'tick-3',
-          offsetSeconds: 180,
-          anchor: 'start',
-          kind: 'confidenceTick',
-          payload: null,
-        },
-      ],
+      // The real bank schedule is materialized from the payload (the offset-0
+      // start, each withdrawal wave, confidence ticks at the authored interval,
+      // the payment-due reminders, and the end settle tick) plus the shared
+      // end-anchored warnings the seed-validation invariant asserts on every
+      // mission.
+      bank: [...milestones(), ...bankSchedule(spec.bankPayload)],
       finale: [
         ...milestones(),
         {
@@ -265,9 +255,12 @@ const seedOne = build({
     },
     {
       recordId: 'B04',
-      outcome: 'PENDING',
+      outcome: 'CONTRADICTED',
       delaySeconds: 50,
-      replyBody: ['BANK DESK QUEUE BACKED UP'],
+      replyBody: [
+        'BANK DESK CONTRADICTS THE EMERGENCY HOLD BASIS',
+        'NO SYSTEM-WIDE SHUTDOWN ON RECORD; THE DISPUTED BALANCE WAS NEVER HELD',
+      ],
     },
     {
       recordId: 'W02',
@@ -294,6 +287,7 @@ const seedOne = build({
   ],
   outlookPayload: OUTLOOK_PAYLOAD_R04,
   flightsPayload: FLIGHTS_PAYLOAD_R04,
+  bankPayload: BANK_PAYLOAD_R04,
   openExceptionsBaseline: 12,
 })
 
@@ -388,9 +382,12 @@ const seedTwo = build({
     },
     {
       recordId: 'H03',
-      outcome: 'PENDING',
+      outcome: 'CONTRADICTED',
       delaySeconds: 50,
-      replyBody: ['QUEUE BACKED UP'],
+      replyBody: [
+        'BANK DESK CONTRADICTS THE EMERGENCY HOLD BASIS',
+        'NO NATIONWIDE GROUND STOP ON RECORD; THE DISPUTED BALANCE WAS NEVER HELD',
+      ],
     },
     {
       recordId: 'V07',
@@ -417,6 +414,7 @@ const seedTwo = build({
   ],
   outlookPayload: OUTLOOK_PAYLOAD_K11,
   flightsPayload: FLIGHTS_PAYLOAD_K11,
+  bankPayload: BANK_PAYLOAD_K11,
   openExceptionsBaseline: 14,
 })
 
@@ -511,9 +509,12 @@ const seedThree = build({
     },
     {
       recordId: 'K08',
-      outcome: 'PENDING',
+      outcome: 'CONTRADICTED',
       delaySeconds: 50,
-      replyBody: ['QUEUE BACKED UP'],
+      replyBody: [
+        'BANK DESK CONTRADICTS THE EMERGENCY HOLD BASIS',
+        'NO TOTAL TRAFFIC HALT ON RECORD; THE DISPUTED BALANCE WAS NEVER HELD',
+      ],
     },
     {
       recordId: 'U04',
@@ -540,6 +541,7 @@ const seedThree = build({
   ],
   outlookPayload: OUTLOOK_PAYLOAD_T58,
   flightsPayload: FLIGHTS_PAYLOAD_T58,
+  bankPayload: BANK_PAYLOAD_T58,
   openExceptionsBaseline: 10,
 })
 

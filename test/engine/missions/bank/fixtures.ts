@@ -26,6 +26,8 @@ import {
 } from '@engine/missions/bank/module'
 import type { BankPayload } from '@engine/missions/bank/content'
 import type { BankState } from '@engine/missions/bank/types'
+import { SEED_CATALOG } from '@engine/seeds/catalog'
+import { BANK_ANCHORS_BY_SEED } from '@engine/missions/bank/payloads'
 import { FIXTURE_RECORDS } from '../../records/fixtures'
 
 export const BANK_DURATION_MS = 240_000
@@ -36,11 +38,11 @@ export const BANK_T0 = 1_000_000
  *  the target is 55. Two critical payments, each from a specific account. */
 export const FIXTURE_PAYLOAD: BankPayload = {
   accounts: [
-    { id: 'ANCHORA', name: 'ANCHORA HOLDINGS', flavor: 'PRIME DEPOSITOR', openingBalance: 1000, limitEligible: false },
-    { id: 'BELROSE', name: 'BELROSE TRUST', flavor: 'PENSION POOL', openingBalance: 1200, limitEligible: true },
-    { id: 'CALDERA', name: 'CALDERA FUND', flavor: 'MONEY MARKET', openingBalance: 1500, limitEligible: true },
-    { id: 'DORVEL', name: 'DORVEL ESTATE', flavor: 'FAMILY OFFICE', openingBalance: 800, limitEligible: false },
-    { id: 'EMBER', name: 'EMBER MUTUAL', flavor: 'INSURER', openingBalance: 900, limitEligible: false },
+    { id: 'ANCHORA', name: 'ANCHORA HOLDINGS', flavor: 'PRIME DEPOSITOR', flavorKind: 'depositor', openingBalance: 1000, limitEligible: false },
+    { id: 'BELROSE', name: 'BELROSE TRUST', flavor: 'PENSION POOL', flavorKind: 'municipal', openingBalance: 1200, limitEligible: true },
+    { id: 'CALDERA', name: 'CALDERA FUND', flavor: 'MONEY MARKET', flavorKind: 'operating', openingBalance: 1500, limitEligible: true },
+    { id: 'DORVEL', name: 'DORVEL ESTATE', flavor: 'FAMILY OFFICE', flavorKind: 'vendor', openingBalance: 800, limitEligible: false },
+    { id: 'EMBER', name: 'EMBER MUTUAL', flavor: 'INSURER', flavorKind: 'payroll', openingBalance: 900, limitEligible: false },
   ],
   requests: [
     { id: 'W1', accountId: 'CALDERA', amount: 300, offsetSeconds: 30, reason: 'PANIC WAVE ONE.', duplicateOfId: null, disputed: false },
@@ -192,8 +194,8 @@ export function bankSub(state: CampaignState): BankState {
  *  is high so holding one account never stamps a broad hold. */
 export const COLLAPSE_PAYLOAD: BankPayload = {
   accounts: [
-    { id: 'ANCHORA', name: 'ANCHORA HOLDINGS', flavor: 'PRIME DEPOSITOR', openingBalance: 30, limitEligible: false },
-    { id: 'ZEPHYR', name: 'ZEPHYR TRUST', flavor: 'RESERVE POOL', openingBalance: 20, limitEligible: false },
+    { id: 'ANCHORA', name: 'ANCHORA HOLDINGS', flavor: 'PRIME DEPOSITOR', flavorKind: 'depositor', openingBalance: 30, limitEligible: false },
+    { id: 'ZEPHYR', name: 'ZEPHYR TRUST', flavor: 'RESERVE POOL', flavorKind: 'operating', openingBalance: 20, limitEligible: false },
   ],
   requests: [],
   payments: [
@@ -301,3 +303,170 @@ export function start(t0 = BANK_T0): Envelope {
 }
 
 export const SETTLE_AT = BANK_T0 + BANK_DURATION_MS + 1_000
+
+// ── Section 02 solvability scripts over the three AUTHORED seeds ─────
+// The exported difficulty contract section 04 reuses: per seed, a walkthrough
+// that reads the evidence (including a TRACE/INSPECT of the hold-justification
+// record so clue-found is exercised), holds selectively, limits where
+// eligible, releases to pay, clears all four critical payments, and settles at
+// full tier; a surge variant A that lets confidence cross at least one
+// threshold (base injections) then recovers to a sustainable tier; and the
+// same surge replayed with maximum inbound flightsDisrupted (variant B).
+// Plain (action, offsetSeconds) envelope data plus expected-outcome data; the
+// module math stays in the engine.
+
+export function bankPayloadFor(seedName: string): BankPayload {
+  return SEED_CATALOG[seedName]!.missionPayloads['bank'] as BankPayload
+}
+
+/** A single-mission engine context over the REAL bank module and an AUTHORED
+ *  seed's payload, schedule, and records. Mirrors flightsContextForSeed. */
+export function bankContextForSeed(seedName: string): EngineContext {
+  const seed = SEED_CATALOG[seedName]!
+  const payload = bankPayloadFor(seedName)
+  const overrides: Partial<SeedDefinition> = {
+    name: seed.name,
+    records: seed.records,
+    deskChecks: seed.deskChecks,
+    clueRecords: seed.clueRecords,
+    missionPayloads: { ...seed.missionPayloads, bank: payload },
+    schedules: { bank: [...bankSchedule(payload)] },
+    missionDurationsMs: { bank: BANK_DURATION_MS },
+  }
+  return buildTestContext([...seed.records], overrides, {
+    missions: { bank: makeBankMission(payload) },
+    missionOrder: [BANK_MISSION_ID],
+  })
+}
+
+/** Seed the engine state with a prior settled outcome carrying the capped
+ *  inbound flightsDisrupted consequence, so the next START_MISSION folds it
+ *  into bank's init: threshold-injected withdrawals size base plus the capped
+ *  magnitude (40, the engine cap). This is surge variant B's channel. */
+export function withMaxInboundSurge(state: CampaignState): CampaignState {
+  return {
+    ...state,
+    settled: [
+      {
+        missionId: 'flights',
+        cause: 'completed',
+        tier: 'failed',
+        settleSeq: 0,
+        metrics: {},
+        clueId: null,
+        consequences: [
+          { id: 'cq-max-surge', kind: 'flightsDisrupted', magnitude: 40 },
+        ],
+      },
+    ],
+  }
+}
+
+/** Drive a script over an authored seed through the engine, then advance past
+ *  the deadline so the final tick folds and the mission settles. When
+ *  maxInboundSurge is set, threshold injections size at base plus the capped
+ *  inbound magnitude via a folded inbound consequence. */
+export function driveBankSeed(
+  ctx: EngineContext,
+  seedName: string,
+  envelopes: Envelope[],
+  settleAt = BANK_T0 + BANK_DURATION_MS + 1_000,
+  maxInboundSurge = false,
+): RunResult {
+  let state = createCampaign(ctx, seedName, { extendedTime: false }, BANK_T0)
+  if (maxInboundSurge) state = withMaxInboundSurge(state)
+  const emitted: EngineEvent[] = []
+  for (const [action, now] of envelopes) {
+    const result = dispatch(ctx, state, action, now)
+    state = result.state
+    emitted.push(...result.emitted)
+  }
+  const advanced = advanceCampaign(ctx, state, settleAt)
+  emitted.push(...advanced.emitted)
+  return { state: advanced.state, emitted }
+}
+
+export interface BankScriptExpectation {
+  readonly tier: string
+  readonly clearedPayments: number
+  readonly totalPayments: number
+  readonly clueFound: boolean
+  readonly clueId: string
+}
+
+/** The walkthrough for an authored seed: TRACE the hold-justification record
+ *  so the clue surfaces, hold two depositor accounts selectively (below the
+ *  broad-hold count), LIMIT an eligible operating account, release to pay, and
+ *  clear all four critical payments at their due offsets. Every payment
+ *  clears, cash stays well above the floor, and confidence recovers past the
+ *  target, so the mission settles at FULL. */
+export function bankWalkthroughFor(seedName: string, t0 = BANK_T0): Envelope[] {
+  const anchors = BANK_ANCHORS_BY_SEED[seedName]!
+  const o = (sec: number) => t0 + sec * 1000
+  return [
+    [{ type: 'START_MISSION', missionId: BANK_MISSION_ID }, t0],
+    [{ type: 'INSPECT_RECORD', recordId: anchors.justificationRecordId }, o(5)],
+    [holdAct('DEP-ASHE'), o(10)],
+    [holdAct('DEP-REEVE'), o(12)],
+    [limitAct('OPS-MAIN', 2000), o(15)],
+    [payAct('PM1'), o(96)],
+    [releaseAct('DEP-ASHE'), o(100)],
+    [payAct('PM2'), o(126)],
+    [releaseAct('DEP-REEVE'), o(130)],
+    [payAct('PM3'), o(156)],
+    [payAct('PM4'), o(186)],
+  ]
+}
+
+export function bankWalkthroughExpectation(seedName: string): BankScriptExpectation {
+  const anchors = BANK_ANCHORS_BY_SEED[seedName]!
+  return {
+    tier: 'full',
+    clearedPayments: 4,
+    totalPayments: 4,
+    clueFound: true,
+    clueId: anchors.clueId,
+  }
+}
+
+/** Surge variant A: hold six accounts hard through the first two ticks so
+ *  confidence crashes across the 60 and 45 thresholds (firing their authored
+ *  base injections, the surge the holds themselves provoke), then release and
+ *  clear every payment. The run recovers to a sustainable FULL settlement.
+ *  Used verbatim at base sizing (variant A) and with the maximum inbound
+ *  magnitude folded in (variant B). */
+export function bankSurgeFor(seedName: string, t0 = BANK_T0): Envelope[] {
+  const anchors = BANK_ANCHORS_BY_SEED[seedName]!
+  const o = (sec: number) => t0 + sec * 1000
+  return [
+    [{ type: 'START_MISSION', missionId: BANK_MISSION_ID }, t0],
+    [{ type: 'INSPECT_RECORD', recordId: anchors.justificationRecordId }, o(5)],
+    [holdAct('DEP-ASHE'), o(10)],
+    [holdAct('DEP-REEVE'), o(11)],
+    [holdAct('VEN-ORR'), o(12)],
+    [holdAct('MUN-VANE'), o(13)],
+    [holdAct('PAY-SOUTH'), o(14)],
+    [holdAct('PAY-NORTH'), o(15)],
+    [releaseAct('DEP-ASHE'), o(125)],
+    [releaseAct('DEP-REEVE'), o(126)],
+    [releaseAct('VEN-ORR'), o(127)],
+    [releaseAct('MUN-VANE'), o(128)],
+    [releaseAct('PAY-SOUTH'), o(129)],
+    [releaseAct('PAY-NORTH'), o(130)],
+    [payAct('PM1'), o(131)],
+    [payAct('PM2'), o(132)],
+    [payAct('PM3'), o(156)],
+    [payAct('PM4'), o(186)],
+  ]
+}
+
+export function bankSurgeExpectation(seedName: string): BankScriptExpectation {
+  const anchors = BANK_ANCHORS_BY_SEED[seedName]!
+  return {
+    tier: 'full',
+    clearedPayments: 4,
+    totalPayments: 4,
+    clueFound: true,
+    clueId: anchors.clueId,
+  }
+}
