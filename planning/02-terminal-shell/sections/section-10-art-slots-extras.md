@@ -233,3 +233,36 @@ alongside the existing engine tests, every ArtSlotId renders a graded
 placeholder with reserved space, the swap test proves the media-split
 contract, the tic-tac-toe draw sequence is byte-identical across runs, and
 `docs/manual-smoke-checklist.md` exists with the six checks above.
+
+## Implementation notes (as built)
+
+Final suite 496 tests. All three pieces shipped as planned.
+
+- **art/**: `types.ts` holds the canonical 13-id `ArtSlotId`, `ArtSlotEntry`,
+  and the registry-level `HeroCrop`. `registry.ts` seeds all 13 entries as
+  graded placeholders with reserved aspect ratios; hero slots eager and
+  decorative, briefing slots on-mission-select and informative, the rest
+  deferred. The hero crops are DERIVED from `hero/heroCrop.ts` `HERO_CROPS` so
+  the calibration values have one source of truth. `swapArtSource` replaces only
+  the source (validating the result in dev), the media-split contract.
+  `placeholders.tsx` renders six graded CSS variants, no images. `ArtSlot.tsx`
+  reserves aspect-ratio space and self-triggers `preloadSlot` on first stable
+  view for deferred slots. `preload.ts` is a loader port (default `new Image()`,
+  retained until settle; no-op for placeholders) with eager/mission/slot
+  entry points. The barrel keeps the section-05 hero helpers
+  (`artSources`/`artNatural`, typed to the two hero slots) working.
+- **games/**: `tictactoe.ts` is a pure, dependency-free minimax (both sides
+  optimal to a nine-move draw, lowest-index tie-break, deterministic; a
+  source-scan test enforces the zero-import rule). `TicTacToeView.tsx` replays
+  on an injected cell renderer (the character grid in production), skippable and
+  instant under reduced motion, with a signature-keyed done latch so onDone
+  never double-fires.
+- **docs/manual-smoke-checklist.md**: the six manual checks that close the split
+  locally before the deployment split re-verifies.
+
+### Reconciliation with section 05
+Section 05 shipped a two-slot hero stand-in in `art/index.ts`; this section kept
+those helpers (now typed to a hero-only slot subset) and added the full
+registry. `hero/heroCrop.ts` keeps its own local 2-id ArtSlotId and HeroCrop
+(section 05 is committed and working); the registry derives its crop values from
+there rather than retrofitting hero to import the registry.

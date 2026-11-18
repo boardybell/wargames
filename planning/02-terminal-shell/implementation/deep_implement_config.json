@@ -50,6 +50,10 @@
     "section-08-cabinet-grid": {
       "status": "complete",
       "commit_hash": "cb57732"
+    },
+    "section-09-a11y-glossary": {
+      "status": "complete",
+      "commit_hash": "f79ed66"
     }
   },
   "pre_commit": {
