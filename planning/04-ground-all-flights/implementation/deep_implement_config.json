@@ -12,7 +12,12 @@
     "section-03-screen-map",
     "section-04-fixtures-polish"
   ],
-  "sections_state": {},
+  "sections_state": {
+    "section-01-module-rules": {
+      "status": "complete",
+      "commit_hash": "3b244ca"
+    }
+  },
   "pre_commit": {
     "present": false,
     "type": "none",

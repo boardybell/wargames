@@ -1,0 +1,14 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`mapModel projection > snapshots the cell matrix per state fixture: hubs bracketed, corridors as line characters, flight markers placed 1`] = `
+[
+  " []  []  []  []     ",
+  " ----               ",
+  " ::::               ",
+  " ----               ",
+  " ----               ",
+  " ----               ",
+  "                    ",
+  " o o o o o o o o    ",
+]
+`;
