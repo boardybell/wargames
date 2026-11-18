@@ -279,3 +279,11 @@ alongside the engine's node project; no section-04-or-later component imports
 are needed to pass them; the only engine entry points touched are the public
 API and @engine/testing; no code outside src/app/state/ calls engine dispatch
 or advanceToNow directly.
+## As Built (section-02 implementation)
+
+Built and committed. 264 tests green (both projects, one `npm test`); tsc and eslint clean.
+
+- Eight modules under src/app/state/: store (useSyncExternalStore, holds the ctx + state), send (the one mutation path), wake (advanceCampaign, wired to visibility/pageshow/focus), events (exactly-once relay), displayClock (performance.now-derived remaining + per-endsAt self-wake guard), saveBinding (debounce/immediate-flush/pagehide-flush + recovery flag + pause + getLastSaveOk), multiTab, index (init + public surface).
+- The engine threads a ctx, so the store holds an EngineContext; the plan's advanceToNow is the engine's advanceCampaign. SAVE_KEYS import PRIMARY_KEY/BACKUP_KEY from @engine (now exported) as the single source of truth.
+- Review fixes: send applies the pre-reduce advance (state + emitted) even on rejection so a deadline-boundary settlement is never swallowed; the self-wake Set is pruned to the current deadline; notifyWake coalesces to avoid starving a pending write under lifecycle churn; PersistResult is surfaced via getLastSaveOk.
+- Test note: an "ordinary" (debounced) action must be a non-completing MISSION_ACTION; SET_PREFERENCE is rejected mid-mission and schedules no write.

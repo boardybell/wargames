@@ -33,6 +33,8 @@ const EXPECTED_EXPORTS = [
   'runMigrations',
   'loadCampaign',
   'persistCampaign',
+  'PRIMARY_KEY',
+  'BACKUP_KEY',
   'seedCatalogMetadata',
   'SEED_NAMES',
 ]

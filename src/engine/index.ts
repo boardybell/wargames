@@ -64,6 +64,8 @@ export {
   runMigrations,
   loadCampaign,
   persistCampaign,
+  PRIMARY_KEY,
+  BACKUP_KEY,
 } from './save'
 export type {
   StoragePort,

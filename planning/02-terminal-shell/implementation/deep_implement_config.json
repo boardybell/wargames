@@ -18,7 +18,12 @@
     "section-09-a11y-glossary",
     "section-10-art-slots-extras"
   ],
-  "sections_state": {},
+  "sections_state": {
+    "section-01-app-scaffold": {
+      "status": "complete",
+      "commit_hash": "ab8046a"
+    }
+  },
   "pre_commit": {
     "present": false,
     "type": "none",
