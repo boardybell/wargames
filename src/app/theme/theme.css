@@ -1,0 +1,32 @@
+/* Global terminal tokens and base type. The color custom properties are set
+   from tokens.ts by initTheme(); the values here are fallbacks only, so the
+   contrast test (which imports tokens.ts) remains the single guard. The font
+   stack falls Glass TTY VT220 -> VT323 -> generic monospace. */
+:root {
+  --color-glass: #050a14;
+  --color-glyph: #6cb6ff;
+  --color-dim: #7fb0e0;
+  --color-focus: #9fd8ff;
+  --color-amber: #ffb84d;
+  --color-red: #ff5c5c;
+  --vignette-darken: 0.25;
+  --font-terminal: 'Glass TTY VT220', 'VT323', ui-monospace, monospace;
+  /* Calibrated against planning/reference/crt-reference.jpg; see CALIBRATION.md. */
+  --terminal-line-height: 1.35;
+  --terminal-letter-spacing: 0.04em;
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--color-glass);
+  color: var(--color-glyph);
+  font-family: var(--font-terminal);
+  line-height: var(--terminal-line-height);
+  letter-spacing: var(--terminal-letter-spacing);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}

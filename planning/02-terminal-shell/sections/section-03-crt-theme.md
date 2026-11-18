@@ -120,3 +120,12 @@ Note on preference change mid-animation (review integration 13): in-flight anima
 - section-01-app-scaffold: Vite/Vitest/jsdom project, fonts in `public/fonts/`, `urlFor` helper. Required before starting.
 - section-09-a11y-glossary: the real `useMotionPreference` hook. Not required to start; consume motion preference via the injected `reducedMotion` option and rewire when available.
 - Blocks section-04 (terminal framework renders inside GlassContainer and uses useTypeIn) and section-05 (hero push-in crossfades into the glass container and starts the greeting type-in).
+## As Built (section-03 implementation)
+
+Built and committed. 280 tests green; tsc, eslint, and the production build clean.
+
+- src/app/theme/: tokens.ts (AA-guarded palette + contrast helpers; VIGNETTE_MAX_DARKEN 0.25 chosen against the AA boundary), fonts.ts (injectFontFaces via urlFor), theme.ts (initTheme publishes tokens as :root CSS vars + injects fonts), theme.css, CALIBRATION.md.
+- src/app/crt/: GlassContainer (aria-hidden sibling overlays; breathing layer removed from the DOM under reduce-glow), crt.css (text halos, scanlines, static vignette above text, breathing + cursor opacity-only animations, luminous border, reduced-motion disables animation), Cursor, useTypeIn (reveal + onTick + complete + exactly-once onComplete + reduced-motion instant + clean text-change restart).
+- Wired initTheme into main.tsx boot.
+- Review fixes: useTypeIn resets on text change (was swallowing onComplete); binding-constraint test tied to the live vignette constant; breathe base opacity so reduced motion lands dim; scanline-exclusion documented.
+- Downstream note: the full-text-in-DOM accessibility contract is the CALLER's responsibility (the hook returns only visibleCount); section 04/05 must render the complete text for assistive tech.

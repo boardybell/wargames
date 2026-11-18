@@ -3,6 +3,8 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { App } from './App'
+import { initTheme } from './theme'
+import './theme/theme.css'
 
 const container = document.getElementById('root')
 if (!container) {
@@ -10,6 +12,8 @@ if (!container) {
   // page and no signal.
   throw new Error('shell: #root element not found')
 }
+// Publish palette tokens as CSS custom properties and inject the font faces.
+initTheme()
 createRoot(container).render(
   <StrictMode>
     <App />

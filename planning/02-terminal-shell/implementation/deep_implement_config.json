@@ -22,6 +22,10 @@
     "section-01-app-scaffold": {
       "status": "complete",
       "commit_hash": "ab8046a"
+    },
+    "section-02-engine-binding": {
+      "status": "complete",
+      "commit_hash": "5074ef6"
     }
   },
   "pre_commit": {
