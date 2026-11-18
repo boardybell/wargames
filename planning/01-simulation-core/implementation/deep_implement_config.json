@@ -54,6 +54,10 @@
     "section-09-branch": {
       "status": "complete",
       "commit_hash": "f1c96b4"
+    },
+    "section-10-properties-and-api": {
+      "status": "complete",
+      "commit_hash": "6df54a8"
     }
   },
   "pre_commit": {
