@@ -1,0 +1,31 @@
+{
+  "plugin_root": "/Users/darkpool/.claude/plugins/cache/piercelamb-plugins/deep-implement/0.2.1",
+  "sections_dir": "/Users/darkpool/wargames/planning/01-simulation-core/sections",
+  "target_dir": "/Users/darkpool/wargames",
+  "state_dir": "/Users/darkpool/wargames/planning/01-simulation-core/implementation",
+  "git_root": "/Users/darkpool/wargames",
+  "commit_style": "simple",
+  "test_command": "npm test",
+  "sections": [
+    "section-01-foundation",
+    "section-02-rng",
+    "section-03-records",
+    "section-04-time",
+    "section-05-campaign",
+    "section-06-mission-interface",
+    "section-07-seeds",
+    "section-08-save",
+    "section-09-branch",
+    "section-10-properties-and-api"
+  ],
+  "sections_state": {},
+  "pre_commit": {
+    "present": false,
+    "type": "none",
+    "config_file": null,
+    "native_hook": null,
+    "may_modify_files": false,
+    "detected_formatters": []
+  },
+  "created_at": "2026-11-17T23:58:19.861586+00:00"
+}

@@ -105,3 +105,26 @@ These helpers are the foundation for section-10's run-twice determinism, sabotag
 ## Dependencies and Downstream
 
 Depends on nothing. Blocks every other section: 02 (rng), 03 (records), and 04 (time) start in parallel immediately after this lands and each relies on the alias, the node test project, the purity gate, and (for their determinism assertions) the canonical harness helpers.
+
+## As built (2026-11-17)
+
+Implemented at the repo root as planned with these deviations, all from
+the section code review (implementation/code_review/section-01-*.md):
+
+- vitest.config.ts uses ordered REGEX aliases (testing exact, @engine
+  exact, @engine/* wildcard to src/engine/$1) because string aliases are
+  prefix matches that corrupt deep imports.
+- stateHash is 64-bit (two FNV-1a passes concatenated).
+- Purity-gate meta test lints inline sources via the ESLint API with
+  repo-relative paths derived from process.cwd(); no .fixture file.
+- Lint fixtures note: member aliasing evades no-restricted-properties;
+  lint-green is not proof of purity.
+- eslint engine block scoped to src/engine/**/*.ts.
+- Empty module directories exist on disk only; each later section
+  creates its own files (git tracks no empty dirs).
+- Files: package.json, tsconfig.json, vitest.config.ts, eslint.config.js,
+  src/engine/index.ts, test/engine/smoke.test.ts,
+  test/engine/purity-gate.test.ts, test/engine/harness/canonical.ts,
+  test/engine/harness/canonical.test.ts. Tests: 9 green; typecheck and
+  lint clean; deps pure-rand 8.4.2, valibot 1.x, vitest 4.1.12,
+  fast-check 4.10.2 (+@fast-check/vitest 0.2.4, peer-clean).
