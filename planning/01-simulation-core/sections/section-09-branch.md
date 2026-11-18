@@ -141,3 +141,23 @@ mission substate exists post-settlement); forkStream is unused by
 those policies. This section's reducer-replay and RNG-stream
 guarantees remain proven against the test-double mission; the
 BranchProjection type and runBranch surface are unchanged.
+
+## As Built (section-09 implementation)
+
+Implemented and committed. 196 engine tests green; tsc and eslint clean.
+
+### Files
+`src/engine/branch/{types,snapshot,runBranch,index}.ts` and `test/engine/branch/{snapshot,runBranch}.test.ts`.
+
+### Signature note for section-10
+`runBranch(ctx: EngineContext, snap: FrozenCampaignState, kind: BranchKind): BranchResult` — takes a leading `ctx` the plan's illustrative `runBranch(snapshot, kind)` omits, because replaying the scripted policies through `dispatch` requires the mission registry. Section-10 and the shell thread `ctx`. Returns a `BranchResult { kind, projection, trace, viability }` wrapper (the plan permits wrapper naming); callers destructure `.trace` for the `BranchStep[]`.
+
+### Review-driven changes
+- runBranch now throws on a rejected scripted action (`branch policy produced an invalid action: <reason>`) rather than recording a silent no-op step. Running a branch on a post-settlement (no active mission) snapshot therefore fails loud. Split 06's real policies don't dispatch mission actions, so they bypass this path.
+- `passengers` and `confidence` projection fields are `Math.max(0, ...)` clamped, so no field goes negative regardless of policy or goal.
+
+### Seam
+The three scripted policies and `project()` are the SPLIT-06 seam, marked in code. They are proven against the permanent test-double mission only; split 06 replaces them with the real finale policies (pure transforms over settled metrics plus the exception selector, per Amendment 4 — forkStream is unused by those).
+
+### Known limitation
+The scaffold policies run 1–2 branch steps, which do not cross the test-double's start+60s RNG draw, so stream separation is not exercised behaviorally in these tests. forkStream's separation is unit-tested in section-02, and Amendment 4 notes the real finale policies don't use forkStream; the guarantee here is architectural.
