@@ -22,6 +22,10 @@
     "section-01-foundation": {
       "status": "complete",
       "commit_hash": "a26a659"
+    },
+    "section-02-rng": {
+      "status": "complete",
+      "commit_hash": "dd017fa"
     }
   },
   "pre_commit": {

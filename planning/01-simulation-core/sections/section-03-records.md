@@ -161,3 +161,17 @@ All values are integers per the engine-wide integer-simulation-math principle; n
 - Every exported function is pure and frozen-input safe; no module-level mutable state.
 - Reason codes are a closed union with distinct values per rejection class, stable enough for downstream dialogue rendering.
 - No queue, dispatch, or CampaignState code in this module; those hooks land in section-05-campaign against the signatures defined here.
+
+## As built (2026-11-17)
+
+Single-module layout: src/engine/records/index.ts (plan allowed it);
+tests in test/engine/records/records.test.ts plus fixtures.ts (19
+tests). Deviations, reviewer-approved: EXERCISE_ORIGIN added as a
+distinct reason code (an unstamped EXERCISE record would otherwise pass
+as INDEPENDENT); cycles fold into BROKEN_CHAIN; empty-string parentId is
+a broken edge in both trace and the independence walk. Precedence
+pinned by tests: not-found, then origin (DERIVED or EXERCISE), then
+direct run stamp, then ancestry; fixtures E01 (unstamped exercise) and
+P13 (stamp plus tainted ancestry) added beside the canonical
+C17/F06/B04/W02 and pathological L09/S11. Full trail in
+implementation/code_review/section-03-*.md.
