@@ -28,14 +28,15 @@ and campaign-level scoring (where WOPR's tally-vs-reality divergence pays off).
 | 07 art-audio-pipeline (media) | not started |
 | 08 deploy-and-review | not started |
 
-## Mission 3 sections (DONE)
+## Finale split (06) sections (current)
 
 | Section | What | Status |
 |---------|------|--------|
-| 01 module-rules | engine mission module (accounts, confidence, holds) | COMMITTED |
-| 02 content-seeds | 3 seeds, 10 accounts, 18 requests, validator, solvability | COMMITTED |
-| 03 screen-ledger | ledger / feed / payments views, WOPR prediction line | COMMITTED |
-| 04 fixtures-polish | acceptance gate (timeout/forfeit/collapsed, properties) | COMMITTED |
+| retrofit | all 3 missions stamp the WOPR-vs-reality metrics; finale viability recalibrated | COMMITTED |
+| 01 finale-module | case builder, field-report bounded wait, commit vs timeout | COMMITTED |
+| 03 joshua-catalog | the WOPR/JOSHUA voice: every line, completeness-gated | COMMITTED |
+| 02 projections-endings | three projected futures + three endings from settled history | building |
+| 04 screens-fixtures | the finale screens + acceptance fixtures | not started |
 
 ## How it is built (per section)
 
