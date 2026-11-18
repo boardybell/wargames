@@ -5,7 +5,7 @@
 // the shell never diffs state.
 import { advanceToNow, materializeSchedule } from '../time'
 import type { ProcessedEvent, TimeSlice } from '../time'
-import { rngFromSeed } from '../rng'
+import { nextInt, rngFromSeed } from '../rng'
 import type {
   FoldedConsequences,
   MissionRegistry,
@@ -236,15 +236,29 @@ function applyProcessedEvent(
   if (!runtime) return state
   const module = ctx.missions[runtime.missionId]
   if (!module) throw new Error(`campaign: unknown mission ${runtime.missionId}`)
+  // Draw delivery: a seed-authored payload of shape { draw: { min, max } }
+  // asks the engine to perform the draw; the mission receives the value
+  // inside the event and never touches RngState. The advanced rng rides
+  // back into campaign state, so replays reproduce every draw.
+  let payload = event.payload
+  let rng = state.rng
+  const draw = (payload as { draw?: { min: number; max: number } } | null)
+    ?.draw
+  if (draw) {
+    const [drawnValue, nextRng] = nextInt(rng, draw.min, draw.max)
+    rng = { words: [...nextRng.words] }
+    payload = { ...(payload as object), drawnValue }
+  }
   const substate = module.reduce(runtime.substate, {
     type: 'scheduled',
     id: event.id,
     kind: event.kind,
-    payload: event.payload,
+    payload,
     now: event.scheduledAt,
   })
   let next: CampaignState = {
     ...state,
+    rng,
     activeMission: { ...runtime, substate },
   }
   next = pollMission(ctx, next, emitted)

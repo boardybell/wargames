@@ -140,3 +140,20 @@ settles with that cause. evaluate() now receives the widened cause
 union. The test-double mission exercises both terminal causes
 (completed on token goal, collapsed on a poison-token condition) so
 lifecycle tests cover both paths plus the exactly-once guard.
+
+## As built (2026-11-17)
+
+The MissionModule interface landed early with section 05
+(src/engine/missions/types.ts, now including optional debrief() and the
+documented materialized-duration init param). This section promoted the
+permanent test double to src/engine/testing/index.ts (amendment 5
+honored: strictObject schema, inputLog proving event-only inputs
+including engine-performed draws, both terminal causes, clues(),
+debrief, tier ladder) plus buildTestContext with mission and order
+overrides. Review-driven engine addition: DRAW DELIVERY, the payload
+{ draw: { min, max } } contract answered with drawnValue and the
+advanced rng threaded through campaign state (replay-deterministic,
+tested). A bundle-hygiene test forbids non-testing engine imports of
+the double. Tests in test/engine/missions/interface.test.ts (8) with
+the campaign suite re-pointed to @engine/testing. Trail in
+implementation/code_review/section-06-*.md.

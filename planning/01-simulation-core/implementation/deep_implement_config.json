@@ -34,6 +34,10 @@
     "section-04-time": {
       "status": "complete",
       "commit_hash": "c681798"
+    },
+    "section-05-campaign": {
+      "status": "complete",
+      "commit_hash": "1ec2af5"
     }
   },
   "pre_commit": {

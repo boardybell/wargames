@@ -59,8 +59,17 @@ export type Validity =
   | { readonly valid: true }
   | { readonly valid: false; readonly reason: string }
 
+export interface DebriefPayload {
+  readonly missionId: MissionId
+  readonly headline: string
+  readonly lines: readonly string[]
+  readonly clueId: string | null
+}
+
 export interface MissionModule<S = unknown> {
   readonly id: MissionId
+  /** durationMs is the MATERIALIZED mission length (already doubled
+   *  under extended time), not the authored standard duration. */
   init(
     seed: SeedDefinition,
     consequences: FoldedConsequences,
@@ -75,6 +84,10 @@ export interface MissionModule<S = unknown> {
   /** Amendment 6: polled after every reduce; new ids merge
    *  monotonically into cluesFound with clueFound events. */
   clues?(state: S): readonly string[]
+  /** The display payload a settled mission's debrief renders; absent
+   *  modules fall back to the raw SettledOutcome via
+   *  selectSettledOutcome. */
+  debrief?(outcome: SettledOutcome): DebriefPayload
   /** Consequences this mission emits are carried on its
    *  SettledOutcome; evaluate() authors them. */
   readonly saveSchema: GenericSchema<S>

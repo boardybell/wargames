@@ -16,7 +16,9 @@ export default tseslint.config(
   },
   ...tseslint.configs.recommended,
   {
-    files: ['test/**'],
+    // Test tree plus the test-double export, which keeps interface
+    // parameters it deliberately ignores.
+    files: ['test/**', 'src/engine/testing/**'],
     rules: {
       '@typescript-eslint/no-unused-vars': [
         'error',
