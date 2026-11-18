@@ -546,7 +546,24 @@ export function makeBankMission(
       for (const p of payload.payments) {
         if (state.payments[p.id]?.cleared) cleared += 1
       }
+      const held = heldCount(state)
       const ct = crossTab(state)
+      // Campaign-divergence metrics the selectors read (campaign/selectors.ts),
+      // on the same real-scale convention the flights module uses.
+      //   wopr_resolved: forced inactivity WOPR counts as resolved = accounts
+      //     held/frozen at settlement (a frozen ledger reads as a resolved
+      //     exception). Account-scale, 0..accountCount. Clean walkthrough
+      //     releases before settling (0); freeze-everything posts the full set.
+      //   service_cost: the real damage = unpaid critical payments at
+      //     settlement (payments_total - payments_cleared), plus a collapse
+      //     surcharge equal to the payment count when the cause is a collapse
+      //     (a collapsed ledger strands every obligation, not just the unpaid
+      //     ones). Payment-scale integer, >= 0, deterministic. Clean
+      //     walkthrough clears all four (0); defensive play drives both high.
+      const unpaidCritical = payload.payments.length - cleared
+      const collapseSurcharge = cause === 'collapsed' ? payload.payments.length : 0
+      const woprResolved = held
+      const serviceCost = unpaidCritical + collapseSurcharge
       return {
         missionId: BANK_MISSION_ID,
         cause,
@@ -557,7 +574,7 @@ export function makeBankMission(
           payments_total: payload.payments.length,
           derived_cash: cash,
           confidence: state.confidence,
-          held_accounts: heldCount(state),
+          held_accounts: held,
           payments_signal: signals.paymentsCleared ? 1 : 0,
           cash_signal: signals.cashAtOrAboveFloor ? 1 : 0,
           confidence_signal: signals.confidenceAtOrAboveTarget ? 1 : 0,
@@ -567,6 +584,8 @@ export function makeBankMission(
           genuine_after_hold_amount: ct.genuineAfterHoldAmount,
           injected_after_hold_count: ct.injectedAfterHoldCount,
           injected_after_hold_amount: ct.injectedAfterHoldAmount,
+          wopr_resolved: woprResolved,
+          service_cost: serviceCost,
         },
         clueId: null,
         consequences:

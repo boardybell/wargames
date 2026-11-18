@@ -13,7 +13,10 @@ export function selectOpenExceptions(state: CampaignState): number {
   for (const outcome of state.settled) {
     open -= outcome.metrics['wopr_resolved'] ?? 0
   }
-  return open
+  // Clamp at zero (mirrors runBranch.ts computeViability's projection clamp):
+  // the aggregate wopr_resolved can exceed the seed baseline, and a negative
+  // OPEN EXCEPTIONS is a broken HUD, not a better WOPR deception number.
+  return Math.max(0, open)
 }
 
 /** The settled record a reselected menu row displays. */

@@ -440,13 +440,30 @@ export function makeOutlookMission(
       const satisfied = satisfiedCount(state)
       const tier = tierFromSatisfied(satisfied)
       const magnitude = payload.commsDelayedTable[tier]
+      const decoy = decoyCapacitySpent(state)
+      // Campaign-divergence metrics the selectors read (campaign/selectors.ts),
+      // on the same real-scale convention the flights module uses.
+      //   wopr_resolved: forced inactivity WOPR counts as resolved = the three
+      //     required messages the player did NOT deliver, i.e. the quiet-inbox
+      //     holds WOPR rewards. 3 - required_delivered, clamped >= 0. Clean
+      //     walkthrough delivers all three (0); deliver-nothing posts 3.
+      //   service_cost: the real damage = required messages not delivered
+      //     correctly (3 - required_delivered) PLUS any backup/decoy capacity
+      //     misspent on non-required or stale traffic. Message-scale integer,
+      //     >= 0, deterministic. Clean walkthrough ~0; blanket inactivity high.
+      const woprResolved = Math.max(0, 3 - satisfied)
+      // DELIBERATE: the undelivered-message count (3 - satisfied) is counted
+      // in BOTH wopr_resolved and service_cost. WOPR credits the holds as
+      // resolved; the campaign bills the same holds as real damage. That
+      // double-count IS the divergence by design; do not "fix" the coupling.
+      const serviceCost = woprResolved + decoy
       return {
         missionId: OUTLOOK_MISSION_ID,
         cause,
         tier,
         metrics: {
           required_delivered: satisfied,
-          decoy_capacity_spent: decoyCapacitySpent(state),
+          decoy_capacity_spent: decoy,
           weather_correct: state.deliveredRequired.weather.correct ? 1 : 0,
           payroll_correct: state.deliveredRequired.payroll.correct ? 1 : 0,
           audit_correct: state.deliveredRequired.audit.correct ? 1 : 0,
@@ -454,6 +471,8 @@ export function makeOutlookMission(
           payroll_delivered: state.deliveredRequired.payroll.delivered ? 1 : 0,
           audit_delivered: state.deliveredRequired.audit.delivered ? 1 : 0,
           audit_routed: state.auditDelivered ? 1 : 0,
+          wopr_resolved: woprResolved,
+          service_cost: serviceCost,
         },
         clueId: state.auditRead ? OUTLOOK_CLUE_ID : null,
         consequences:

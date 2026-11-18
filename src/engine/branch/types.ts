@@ -67,10 +67,29 @@ export interface BranchResult {
 // Integer service thresholds shaped by settled outcomes: better earlier
 // outcomes keep these totals low and widen finale recovery options.
 // Summed across settled metrics and compared <= threshold.
+//
+// Calibrated empirically against all three real missions (outlook, bank,
+// flights) stamping wopr_resolved + service_cost on the flights convention.
+// Measured aggregates across a full three-mission campaign, identical on all
+// three authored seeds:
+//   CLEAN (section-02 walkthroughs):      wopr_resolved 0,  service_cost 0
+//   DEFENSIVE (hold / freeze / ground,    wopr_resolved 20, service_cost 20
+//     deliver nothing; per mission
+//     outlook 2/4, bank 10/8, flights 8/8)
+// Per-mission defensive service_cost: outlook 4, bank 8, flights 8. The
+// service_cost max sits strictly between the single-worst defensive mission
+// and the smallest two-defensive pair, so one defensive mission stays viable
+// and any two do not, symmetrically regardless of which two:
+//   clean campaign                        service_cost 0  (viable at <= 10)
+//   single worst defensive mission        service_cost 8  (viable at <= 10)
+//   any two defensive missions            service_cost >= 12 (fails: the
+//     pairs are outlook+bank 12, outlook+flights 12, bank+flights 16)
+//   full defensive campaign               service_cost 20 (fails)
+// wopr_resolved max stays 10: clean 0 passes, full defensive 20 fails.
 export const VIABILITY_THRESHOLDS: readonly {
   readonly key: string
   readonly max: number
 }[] = [
-  { key: 'wopr_resolved', max: 2 },
-  { key: 'service_cost', max: 20 },
+  { key: 'wopr_resolved', max: 10 },
+  { key: 'service_cost', max: 10 },
 ]

@@ -103,13 +103,22 @@ describe('STAGED_RECOVERY viability', () => {
     const poor = runBranch(ctx, constrained, 'STAGED_RECOVERY')
     expect(good.viability.viable).toBe(true)
     expect(poor.viability.viable).toBe(false)
-    // The threshold values are visible so the shell can show why.
+    // The threshold values are visible so the shell can show why. The
+    // test-double forfeit stamps wopr_resolved 3 and service_cost 30; against
+    // the recalibrated real-mission thresholds (wopr_resolved max 10,
+    // service_cost max 10) the service_cost line is the one that breaches.
     const woprThreshold = poor.viability.thresholds.find(
       (t) => t.key === 'wopr_resolved',
     )
     expect(woprThreshold).toBeDefined()
-    expect(woprThreshold!.pass).toBe(false)
-    expect(woprThreshold!.threshold).toBe(2)
+    expect(woprThreshold!.threshold).toBe(10)
+    expect(woprThreshold!.pass).toBe(true)
+    const serviceThreshold = poor.viability.thresholds.find(
+      (t) => t.key === 'service_cost',
+    )
+    expect(serviceThreshold).toBeDefined()
+    expect(serviceThreshold!.pass).toBe(false)
+    expect(serviceThreshold!.threshold).toBe(10)
     // Viability actually gates the policy: constrained holds at one stage.
     expect(good.trace.length).toBeGreaterThan(poor.trace.length)
   })
