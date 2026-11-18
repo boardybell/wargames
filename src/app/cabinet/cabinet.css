@@ -1,0 +1,104 @@
+/* Cabinet chrome: amber lamp banks, the exceptions/outcomes readouts, and the
+   countdown. Every transition animates opacity only, consistent with the CRT
+   stack's no-animated-filters rule. The red alarm is restrained and always
+   paired with a text label per the status-color rule. */
+.lamp-banks {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.lamp-bank {
+  width: 4rem;
+  height: 1.5rem;
+  border-radius: 2px;
+  background:
+    radial-gradient(
+        circle at 6px 6px,
+        var(--color-amber, #ffb84d) 0 2px,
+        transparent 3px
+      )
+      0 0 / 12px 12px;
+  background-color: #2a2b24;
+  opacity: 0.85;
+}
+
+/* One opacity tween; no filters. Removed entirely under reduced motion. */
+.lamp-breathe {
+  animation: lamp-breathe 5s ease-in-out infinite;
+}
+
+@keyframes lamp-breathe {
+  0%,
+  100% {
+    opacity: 0.7;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.lamp-alarm {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.lamp-alarm-dot {
+  width: 0.75rem;
+  height: 0.75rem;
+  border-radius: 50%;
+  background: var(--color-red, #ff5c5c);
+}
+
+.lamp-alarm-label {
+  color: var(--color-red, #ff5c5c);
+  font-family: var(--font-terminal, 'Glass TTY VT220', 'VT323', monospace);
+  letter-spacing: 0.1em;
+}
+
+.cabinet-readouts {
+  display: flex;
+  gap: 2rem;
+  font-family: var(--font-terminal, 'Glass TTY VT220', 'VT323', monospace);
+}
+
+.readout {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.readout-label {
+  color: var(--color-dim, #7fb0e0);
+  font-size: 0.8em;
+  letter-spacing: 0.08em;
+}
+
+.readout-value {
+  color: var(--color-glyph, #6cb6ff);
+  font-size: 1.6em;
+}
+
+.countdown-dotmatrix {
+  display: inline-flex;
+  gap: 0.15em;
+  font-family: var(--font-terminal, 'Glass TTY VT220', 'VT323', monospace);
+  color: var(--color-amber, #ffb84d);
+  font-size: 2.2em;
+  text-shadow: 0 0 6px var(--color-amber, #ffb84d);
+}
+
+.crt-reduce-glow .countdown-dotmatrix {
+  text-shadow: 0 0 1px var(--color-amber, #ffb84d);
+}
+
+.countdown-digit {
+  width: 1ch;
+  text-align: center;
+}
+
+.countdown-line {
+  font-family: var(--font-terminal, 'Glass TTY VT220', 'VT323', monospace);
+  color: var(--color-amber, #ffb84d);
+}

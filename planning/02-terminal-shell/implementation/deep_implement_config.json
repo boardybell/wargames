@@ -42,6 +42,10 @@
     "section-06-overlays-settings": {
       "status": "complete",
       "commit_hash": "ea9f484"
+    },
+    "section-07-audio-engine": {
+      "status": "complete",
+      "commit_hash": "87ab1ed"
     }
   },
   "pre_commit": {

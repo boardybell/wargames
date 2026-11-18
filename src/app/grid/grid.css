@@ -1,0 +1,69 @@
+/* The character grid. Glow lives at the container level only (one layer); no
+   cell carries a shadow of its own. The selection highlight is the only thing
+   that transitions, and only when the motion-allowed class is present. No
+   filters, no per-cell animation, so a finale-scale grid stays cheap. */
+.char-grid-wrap {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.char-grid {
+  display: inline-flex;
+  flex-direction: column;
+  font-family: var(--font-terminal, 'Glass TTY VT220', 'VT323', monospace);
+  color: var(--color-glyph, #6cb6ff);
+  background: var(--color-glass, #050a14);
+  line-height: 1.1;
+  outline: none;
+}
+
+/* The single container-level glow layer. */
+.char-grid-glow {
+  text-shadow: 0 0 6px var(--color-glyph, #6cb6ff);
+}
+
+.crt-reduce-glow .char-grid-glow {
+  text-shadow: 0 0 1px var(--color-glyph, #6cb6ff);
+}
+
+.char-grid-compact {
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+
+.char-row {
+  display: flex;
+}
+
+.char-cell {
+  display: inline-block;
+  min-width: 1ch;
+  text-align: center;
+  /* No shadow here: the glow is the container's job. */
+}
+
+/* Narrow screens widen the effective tap target to ~44px via padding. */
+.char-cell-tap {
+  padding: 0.75rem 0.5rem;
+  min-width: 44px;
+  min-height: 44px;
+}
+
+.char-cell-selected {
+  color: var(--color-glass, #050a14);
+  background: var(--color-focus, #9fd8ff);
+}
+
+/* Transition only when motion is allowed. Opacity and color only, no filters. */
+.char-cell-anim {
+  transition:
+    background-color 120ms ease,
+    color 120ms ease;
+}
+
+.char-grid-legend {
+  font-family: var(--font-terminal, 'Glass TTY VT220', 'VT323', monospace);
+  color: var(--color-dim, #7fb0e0);
+  font-size: 0.85em;
+}

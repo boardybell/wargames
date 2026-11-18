@@ -261,3 +261,41 @@ anywhere in these two packages. Red alarm reachable only through
 finaleFinalPhase. Grid render provably pure (identical props, identical
 markup). playBranchTrace exported and exercised against BranchStep arrays
 from the real engine types.
+
+## Implementation notes (as built)
+
+Final suite 433 tests green; both packages shipped as planned.
+
+Files as built match the Files list, plus `src/app/grid/constants.ts`
+(COMPACT_BREAKPOINT_PX = 640), `src/app/grid/useNarrow.ts` (useNarrowViewport),
+`src/app/grid/grid.css`, `src/app/cabinet/cabinet.css`, and the review-added
+test `test/app/cabinet/lampBanks.test.tsx`.
+
+Decisions and shapes:
+
+- The grid reuses `useReducedMotion` (a11y/motion) and `shouldHandleKey`
+  (a11y/keyHandler). `PlayBranchTrace` is a component taking `steps` as props
+  with a SKIP control; reveal is one `setTimeout` chain, keyed by a content
+  signature so an inline-array prop does not rewind an in-flight trace.
+- `useNarrowViewport` drives both the compact pitch and the 44px tap padding
+  via `matchMedia`; the `compact` prop forces pitch only (tap padding tracks a
+  physically narrow viewport).
+- Glow is one container-level class (`char-grid-glow`); cells carry no shadow.
+  Selection transitions via `char-cell-anim` only when motion is allowed. Each
+  cell has a deterministic id (base from an optional `id` prop, default
+  `wg-grid`, not `useId`, to keep the render pure) and the grid sets
+  `aria-activedescendant` to the selected cell.
+- `LampController` is a class consuming `onEngineEvent`; `register()` disposes
+  any prior subscription first. `useLampController()` is the stable-instance
+  hook callers use (one instance, registered in an effect with cleanup). The
+  alarm lamp lights only on `finaleFinalPhase` and is paired with a DEFCON 1
+  text label.
+- `Readouts` is pure presentation (numeric props); `ReadoutsPanel` wires
+  `useCampaign` + `selectOpenExceptions`/`selectServiceOutcomes`. OPEN
+  EXCEPTIONS is wrapped in the section-06 `GlossaryTerm` stand-in.
+- `Countdown` reads `remainingFor(endsAt)` and repaints on `subscribeTick`
+  (a `useReducer` force-update, not a `useSyncExternalStore` snapshot, since
+  remaining changes every call). It never reads Date.now; the backward-wall-
+  clock defense is the display clock's monotonic performance delta over the
+  engine's clamped lastNow. Dot-matrix numerals wide, in-terminal line narrow,
+  exactly one in the DOM, `role="timer"`.
