@@ -9,6 +9,9 @@ import { GlossaryTerm } from '../../a11y/GlossaryTerm'
 
 export interface DeliveryLogViewProps {
   readonly substate: OutlookState | null
+  /** A narrow-width back affordance that returns to the inbox list. Omitted
+   *  (null) on the two-pane desktop layout where the tabs are always visible. */
+  readonly onBack?: (() => void) | null
 }
 
 function ackLabel(resolution: string, scheduledAckAt: number): string {
@@ -17,11 +20,16 @@ function ackLabel(resolution: string, scheduledAckAt: number): string {
   return 'PENDING'
 }
 
-export function DeliveryLogView({ substate }: DeliveryLogViewProps) {
+export function DeliveryLogView({ substate, onBack = null }: DeliveryLogViewProps) {
   const sends = substate?.sends ?? []
 
   return (
     <div data-testid="delivery-log">
+      {onBack ? (
+        <button type="button" data-testid="log-back" onClick={onBack}>
+          BACK
+        </button>
+      ) : null}
       <div className="delivery-log-head">
         <GlossaryTerm id="outlook-delivery-receipt" /> LOG
       </div>

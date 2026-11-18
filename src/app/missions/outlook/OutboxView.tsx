@@ -28,6 +28,9 @@ export interface OutboxViewProps {
    *  button path can route WRONG and never defaults to the authored answer. */
   readonly chosenDeskFor: (index: number) => DeskId | null
   readonly onChooseDesk: (index: number, desk: DeskId | null) => void
+  /** A narrow-width back affordance that returns to the inbox list. Omitted
+   *  (null) on the two-pane desktop layout where the tabs are always visible. */
+  readonly onBack?: (() => void) | null
 }
 
 export function OutboxView({
@@ -36,6 +39,7 @@ export function OutboxView({
   desks,
   chosenDeskFor,
   onChooseDesk,
+  onBack = null,
 }: OutboxViewProps) {
   const stage = substate?.primaryStage ?? 0
   const primaryEta = primaryEtaSeconds(payload, stage)
@@ -45,6 +49,11 @@ export function OutboxView({
 
   return (
     <div data-testid="outbox-view">
+      {onBack ? (
+        <button type="button" data-testid="outbox-back" onClick={onBack}>
+          BACK
+        </button>
+      ) : null}
       <div className="outbox-readouts" data-testid="outbox-readouts">
         <div data-testid="outbox-primary-stage">
           PRIMARY <GlossaryTerm id="outlook-channel" />: {stageLabel(stage)}{' '}

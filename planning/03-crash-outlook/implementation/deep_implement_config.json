@@ -12,7 +12,20 @@
     "section-03-screen-views",
     "section-04-fixtures-polish"
   ],
-  "sections_state": {},
+  "sections_state": {
+    "section-01-module-rules": {
+      "status": "complete",
+      "commit_hash": "db8cc84"
+    },
+    "section-02-content-seeds": {
+      "status": "complete",
+      "commit_hash": "fa82d84"
+    },
+    "section-03-screen-views": {
+      "status": "complete",
+      "commit_hash": "298b68f"
+    }
+  },
   "pre_commit": {
     "present": false,
     "type": "none",

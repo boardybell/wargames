@@ -195,3 +195,31 @@ Narrow width is driven however split 02 standardized it (matchMedia mock or cont
 - section-03-screen-views: OutlookScreen, the four views, verbs, StatusLine, back affordances (needed by the two jsdom tests only).
 
 Nothing downstream depends on this section.
+## Implementation notes (as built)
+
+The acceptance gate. Final suite 679 tests (engine + app projects), tsc and
+eslint clean. New test files: test/engine/missions/outlook/{fixtures/index.ts,
+fixtures.test.ts, boundary.test.ts, extended-time.test.ts, properties.test.ts,
+debrief.test.ts} and test/app/missions/outlook/{keyboard.test.tsx, narrow.test.tsx}.
+One small screen fix: narrow-width BACK affordances added to OUTBOX and LOG
+(message detail already had one).
+
+All eight acceptance anchors are proven end-to-end against the real engine and
+the real outlook module (no mocks): all four settlement causes per seed
+(completed, timeout, forfeit, adversarial-below-full); the walkthrough reaches
+tier full with a REAL finite backup margin (the backup-spending walkthrough
+leaves backupRemaining 4, strictly between 0 and 5); the buzzer boundary both
+sides (a third ack at endsAt settles completed, at endsAt+1 times out) built
+from authored ETA arithmetic through the engine interleave; extended time scales
+the stage offsets proportionally and stays solvable at eight minutes; a
+fast-check property suite (200 pinned runs) proves no negative backup, no
+superseded-satisfied delivery, exactly one settlement, and free queueing; the
+debrief reports each required kind individually plus decoy spend and the clue
+flag; and keyboard-only and narrow-width passes are green.
+
+Review-driven additions before commit: the two load-bearing fixtures that prove
+the HARD direction of each contract (the finite backup margin, and that a
+player who trusts the visible recipient hints still lands one short at tier
+partial) were wired into the asserted matrix, and the OUTBOX/LOG back
+affordances are now asserted absent at desktop width so the narrow gating is
+locked both ways.

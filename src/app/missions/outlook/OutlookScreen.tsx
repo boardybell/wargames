@@ -381,9 +381,15 @@ export function OutlookScreen({ missionId }: MissionScreenProps) {
             desks={OUTLOOK_DESKS}
             chosenDeskFor={chosenDeskFor}
             onChooseDesk={onChooseOutboxDesk}
+            onBack={narrow ? () => setView('inbox') : null}
           />
         ) : null}
-        {view === 'log' ? <DeliveryLogView substate={substate} /> : null}
+        {view === 'log' ? (
+          <DeliveryLogView
+            substate={substate}
+            onBack={narrow ? () => setView('inbox') : null}
+          />
+        ) : null}
       </div>
     </div>
   )
