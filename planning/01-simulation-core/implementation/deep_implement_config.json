@@ -42,6 +42,10 @@
     "section-06-mission-interface": {
       "status": "complete",
       "commit_hash": "58d6ee6"
+    },
+    "section-07-seeds": {
+      "status": "complete",
+      "commit_hash": "7c4ce68"
     }
   },
   "pre_commit": {

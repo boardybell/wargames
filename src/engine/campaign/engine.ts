@@ -58,6 +58,7 @@ export function createCampaign(
     // stream from day one.
     rng: { words: [...rngFromSeed(seed.seedNumber).words] },
     openExceptionsBaseline: seed.openExceptionsBaseline,
+    settleCounter: 0,
     // Seed lastNow at creation so the first dispatch is not spuriously
     // clamped by the 30-minute catch-up cap.
     lastNow: now,
@@ -132,7 +133,8 @@ function settle(
   }
   const module = ctx.missions[runtime.missionId]
   if (!module) throw new Error(`campaign: unknown mission ${runtime.missionId}`)
-  const outcome: SettledOutcome = module.evaluate(runtime.substate, cause)
+  const evaluated = module.evaluate(runtime.substate, cause)
+  const outcome: SettledOutcome = { ...evaluated, settleSeq: state.settleCounter }
   emitted.push({
     type: 'settlement',
     missionId: runtime.missionId,
@@ -141,6 +143,7 @@ function settle(
   })
   let next: CampaignState = {
     ...state,
+    settleCounter: state.settleCounter + 1,
     settled: [...state.settled, outcome].sort((a, b) =>
       a.missionId < b.missionId ? -1 : a.missionId > b.missionId ? 1 : 0,
     ),

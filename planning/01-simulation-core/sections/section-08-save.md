@@ -147,3 +147,29 @@ Re-export: `encodeSave`, `decodeSave`, `loadCampaign`, `persistCampaign`, `Stora
 ## Definition of Done
 
 All tests in the six test files above pass under `npm test`; coverage thresholds (lines 80, branches 75 over `src/engine/**`) hold; `tsc --noEmit` passes; the corrupted-substate fallthrough test from section-06 still passes against the composed codec; no new runtime dependencies beyond valibot.
+## As Built (section-08 implementation)
+
+Implemented and committed. Final state: 183 engine tests green, `tsc --noEmit` 0 errors, eslint purity gate 0.
+
+### Actual file layout
+- `src/engine/save/index.ts` — the whole save layer in one cohesive module: `StoragePort`, `encodeSave`, `decodeSave`, `runMigrations` (exported, injectable migrations), `MIGRATIONS` (empty at v1), `mergeGuard`, `loadCampaign`, `persistCampaign`, and the recovery/result types. Deviation from the plan's 7-file split (schema/codec/migrations/load/merge-guard/port/index): every function the split isolated is individually exported, so section-10's fc.commands suite imports `mergeGuard` directly — the testability the split protected is intact.
+- `test/engine/save/save.test.ts` — one consolidated suite in place of the plan's six named files (codec, migrations, fallthrough, merge-guard, storage-port, byte-budget), covering every case plus three added by review.
+
+### Merge-guard semantics (as built, post-review)
+The guard reconciles by **source priority, not by sequence number**. `settleSeq` is a per-lineage monotonic stamp (assigned by the engine's `settle()` from `settleCounter`) and is NOT comparable across two divergent saves. So:
+- `const base = inSession ?? loaded`. When the live session is present it is authoritative; the loaded save may only ADD settled facts for missions the session never settled, and never overwrites the live rng, clock, queues, or active mission.
+- Self-consistency (a settled mission can never also be active) runs on every path, including a fresh boot where `base === loaded`.
+- `settleCounter` is lifted above the highest imported `settleSeq` so the next in-engine settlement can't reuse a stamp.
+- Markers union by `(consequenceId, targetMissionId)`. The guard is idempotent.
+
+### Persist semantics (as built, post-review)
+`persistCampaign(port, state, registry)`:
+- Validates by round-tripping through `decodeSave` (composes the mission `saveSchema`), so a broken substate is reported `INVALID STATE` before any write.
+- Double buffer: the prior good primary moves into backup before the new primary is written, so backup trails one generation and offers real rollback.
+- Read-back-confirms the primary. On `QuotaExceededError` it frees backup and retries once; on total failure it restores the prior good primary so the slot is never left torn. No path throws.
+
+### Schema
+`savePayloadSchema.version` is pinned to `v.literal(CURRENT_VERSION)` so a mis-versioned post-migration envelope fails at parse. All closed schemas in `campaign/state.ts` are `v.strictObject` (the only opaque slots are the scheduled-event `payload` and mission `substate` VALUES, typed `v.unknown()` inside closed key sets).
+
+### Engine-contract change
+`MissionModule.evaluate` now returns `EvaluatedOutcome = Omit<SettledOutcome, 'settleSeq'>`; the engine's `settle()` stamps `settleSeq` from `settleCounter`. `createCampaign` seeds `settleCounter: 0`.

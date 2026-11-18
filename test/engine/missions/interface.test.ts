@@ -125,11 +125,13 @@ describe('mission-module lifecycle through the engine', () => {
 
   it('debrief renders from the settled outcome', () => {
     const module = makeTestDoubleMission('alpha')
-    const outcome = module.evaluate(
+    const evaluated = module.evaluate(
       module.init(ctx.seeds['test-seed']!, { byKind: {} }, 240_000),
       'timeout',
     )
-    const payload = module.debrief!(outcome)
+    // The engine stamps settleSeq at settle(); debrief renders the full
+    // settled outcome, so supply the stamp the engine would have added.
+    const payload = module.debrief!({ ...evaluated, settleSeq: 0 })
     expect(payload.headline).toBe('FAILED (TIMEOUT)')
     expect(payload.missionId).toBe('alpha')
     expect(payload.lines[0]).toContain('SERVICE COST 30')

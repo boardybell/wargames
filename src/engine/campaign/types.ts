@@ -26,6 +26,9 @@ export interface SettledOutcome {
   readonly missionId: MissionId
   readonly cause: SettlementCause
   readonly tier: OutcomeTier
+  /** Monotonic settlement order within the campaign, so the save merge
+   *  guard can pick the first-settled outcome when two sources differ. */
+  readonly settleSeq: number
   /** Integer service metrics, mission-defined keys. */
   readonly metrics: Record<string, number>
   readonly clueId: string | null

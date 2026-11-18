@@ -7,6 +7,7 @@
 // draws and times only through events.
 import * as v from 'valibot'
 import type {
+  EvaluatedOutcome,
   FoldedConsequences,
   MissionEvent,
   MissionModule,
@@ -108,7 +109,7 @@ export function makeTestDoubleMission(
       }
       return logged
     },
-    evaluate(state, cause: SettlementCause): SettledOutcome {
+    evaluate(state, cause: SettlementCause): EvaluatedOutcome {
       const tier =
         state.delivered >= state.goal
           ? 'full'

@@ -6,46 +6,47 @@ import * as v from 'valibot'
 
 const integer = v.pipe(v.number(), v.integer())
 
-const scheduledEventSchema = v.object({
+const scheduledEventSchema = v.strictObject({
   id: v.string(),
   scheduledAt: integer,
   kind: v.string(),
   payload: v.unknown(),
 })
 
-const rngStateSchema = v.object({
+const rngStateSchema = v.strictObject({
   words: v.array(v.pipe(v.number(), v.finite())),
 })
 
-const consequenceSchema = v.object({
+const consequenceSchema = v.strictObject({
   id: v.string(),
   kind: v.picklist(['commsDelayed', 'flightsDisrupted', 'paymentsDelayed']),
   magnitude: integer,
 })
 
-const settledOutcomeSchema = v.object({
+const settledOutcomeSchema = v.strictObject({
   missionId: v.string(),
   cause: v.picklist(['completed', 'collapsed', 'timeout', 'forfeit']),
   tier: v.picklist(['full', 'partial', 'poor', 'failed']),
+  settleSeq: integer,
   metrics: v.record(v.string(), integer),
   clueId: v.nullable(v.string()),
   consequences: v.array(consequenceSchema),
   endingId: v.optional(v.picklist(['recovery', 'containment', 'failure'])),
 })
 
-const appliedMarkerSchema = v.object({
+const appliedMarkerSchema = v.strictObject({
   consequenceId: v.string(),
   targetMissionId: v.string(),
 })
 
-const sourceCheckResultSchema = v.object({
+const sourceCheckResultSchema = v.strictObject({
   recordId: v.string(),
   outcome: v.picklist(['CONFIRMED', 'CONTRADICTED', 'PENDING', 'UNKNOWN']),
   resolvedAt: integer,
   arrivedAfterSettlement: v.boolean(),
 })
 
-const missionRuntimeSchema = v.object({
+const missionRuntimeSchema = v.strictObject({
   missionId: v.string(),
   endsAt: integer,
   actionCount: integer,
@@ -54,10 +55,11 @@ const missionRuntimeSchema = v.object({
   substate: v.unknown(),
 })
 
-export const campaignStateSchema = v.object({
+export const campaignStateSchema = v.strictObject({
   seedName: v.string(),
   rng: rngStateSchema,
   openExceptionsBaseline: integer,
+  settleCounter: integer,
   lastNow: integer,
   phase: v.picklist(['menu', 'mission', 'debrief', 'finale', 'ended']),
   activeMission: v.nullable(missionRuntimeSchema),
@@ -70,7 +72,7 @@ export const campaignStateSchema = v.object({
   sourceChecks: v.array(sourceCheckResultSchema),
   inspectedRecords: v.array(v.string()),
   appliedConsequences: v.array(appliedMarkerSchema),
-  preferences: v.object({ extendedTime: v.boolean() }),
+  preferences: v.strictObject({ extendedTime: v.boolean() }),
 })
 
 export type CampaignState = v.InferOutput<typeof campaignStateSchema>

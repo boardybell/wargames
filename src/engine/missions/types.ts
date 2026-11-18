@@ -12,6 +12,9 @@ import type {
   SettlementCause,
 } from '../campaign/types'
 
+/** What a module authors; the engine stamps settleSeq at settlement. */
+export type EvaluatedOutcome = Omit<SettledOutcome, 'settleSeq'>
+
 export interface DeskCheckEntry {
   readonly recordId: string
   readonly outcome: SourceCheckOutcome
@@ -77,7 +80,7 @@ export interface MissionModule<S = unknown> {
   ): S
   validate(state: S, payload: unknown): Validity
   reduce(state: S, event: MissionEvent): S
-  evaluate(state: S, cause: SettlementCause): SettledOutcome
+  evaluate(state: S, cause: SettlementCause): EvaluatedOutcome
   /** Amendment 7: polled after every reduce and drain; non-null
    *  settles immediately with that cause. */
   terminal?(state: S): 'completed' | 'collapsed' | null
