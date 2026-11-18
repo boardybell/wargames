@@ -136,3 +136,29 @@ Every public call wraps its body so failure (no context in jsdom or ancient brow
 ## Definition of done
 
 All block-9 tests green under the jsdom Vitest project in one `npm test` run alongside the engine's node project. The provisional manifest validates and covers the requirements cue table. The audible-by-ear checks (ducking, levels, iOS interruption recovery) belong to the manual smoke checklist owned by section 10 and the split-08 Playwright pass; do not block this section on them.
+
+## Implementation notes (as built)
+
+All nine source modules and all seven test files shipped as planned. The full suite is green at 391 tests (up from 361), including every block-9 behavior above.
+
+Deviations and decisions worth recording:
+
+- The port seam (`port.ts`) is a two-method `WebAudioPort { create(): ContextLike | null; now(context): number }`. Production uses `browserAudioPort` (returns null when `window.AudioContext`/`webkitAudioContext` is missing); tests inject a recording mock via `setAudioPort`. The barrel re-exports the port value types (`ContextLike`, `ContextState`, `ParamLike`, `GainLike`, `SourceLike`, `OscillatorLike`, `BufferLike`) so the test harness and later sections type their mocks without deep imports.
+- Master mute is a single value. `getSoundPreference()`/`setSoundPreference('on'|'off')` (the diegetic prompt path) and `setAudioPref('master', boolean)` (the settings switch path) read and write the same `master` field, confirmed by a prefs test asserting both surfaces move one value.
+- jsdom on Node 26 exposes no `window.localStorage`, so prefs use an in-memory session store as the source of truth and mirror to `localStorage` when present. Corrupt JSON falls back to muted defaults without throwing.
+- Lazy decode is guarded by an in-flight map so a cue played twice while its first decode is pending still decodes exactly once (spy-verified).
+- `voice-greeting` transcript is "GREETINGS PROFESSOR FALKEN. SHALL WE PLAY A GAME?"; warning cues carry spoken-count transcripts (for example "TEN SECONDS"). The `Captions` component renders the playing transcript with `data-testid="caption"` and reads it even when no context exists.
+- The hero test harness (`test/app/hero/harness.ts`) `spyResume()` was updated to the new port model: it installs a mock context via `installMockAudio` and returns that context's `resume` spy, since `resumeAudio()` now routes through `getAudioContext().resume()`.
+
+File map as built matches the Files section, plus one module added during code-review integration: `src/app/audio/mount.ts` (the `mountAudio()` bootstrap) and its `test/app/audio/mount.test.ts`.
+
+## Code-review fixes (as applied)
+
+The section-07 review surfaced several load-bearing requirements that were correct in the module but not yet bootstrapped, plus real leak/correctness defects. All were fixed before commit (final suite 397 tests):
+
+- Added `src/app/audio/mount.ts` (`mountAudio()`): registers warnings on the engine relay, pre-decodes eager cues, and advances the generation token on every `phaseChanged`. Wired into `state/index.ts` `init()` with teardown, so the subsystem goes live at the single boot seam. (`init()` is itself called only once full App integration lands; the wiring is ready.) To avoid an eval-time import cycle, `mount.ts` and `warnings.ts` import `onEngineEvent` from `../state/events` directly.
+- Warning guard now clears on `phaseChanged` inside the `registerWarnings` consumer, so each mission's reused `warn-30`/`warn-10` ids fire again instead of being suppressed for the page lifetime.
+- Ducking moved off the prefs-owned ambience bus onto a dedicated `ambienceDuck` node in series (`ambience -> ambienceDuck -> master`). Preferences own the bus gain; the player owns the duck node. No two-writer conflict.
+- Per-play source and envelope nodes are now `disconnect()`-ed in `onended`, every source gets an explicit scheduled `stop()` (oscillators no longer run forever), and only `exclusive-on-bus` cues register in the bus-tracking map.
+- The `statechange` listener is now removable (`ContextLike.removeEventListener`), captions use a persistent live region (text swapped, not mounted/unmounted), and the caption rule reads an explicit `caption?: boolean` manifest flag instead of an id prefix.
+- Deferred (forward-dependency): file-cue `urlFor` + real `fetch` in `decodeFile` stays a documented stand-in for the later media split; the shipped manifest is all-synth.

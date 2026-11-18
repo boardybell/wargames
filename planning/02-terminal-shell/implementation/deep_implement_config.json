@@ -38,6 +38,10 @@
     "section-05-hero-pushin": {
       "status": "complete",
       "commit_hash": "af56030"
+    },
+    "section-06-overlays-settings": {
+      "status": "complete",
+      "commit_hash": "ea9f484"
     }
   },
   "pre_commit": {

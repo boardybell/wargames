@@ -1,12 +1,13 @@
 import { vi } from 'vitest'
-import { setAudioPort, __resetAudio } from '@app/audio'
+import { __resetAudio } from '@app/audio'
 import { __resetPushIn } from '@app/hero'
 import { __resetInputStack } from '@app/screens/inputStack'
+import { installMockAudio } from '../audio/harness'
 
+/** Install a mock audio context and return the spy its resume() routes to. */
 export function spyResume(): ReturnType<typeof vi.fn> {
-  const resume = vi.fn()
-  setAudioPort({ resume })
-  return resume
+  const { ctx } = installMockAudio('suspended')
+  return ctx.resumeSpy
 }
 
 export function resetHero(): void {

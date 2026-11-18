@@ -11,6 +11,7 @@ import {
   setPort,
 } from './saveBinding'
 import { registerMultiTab } from './multiTab'
+import { mountAudio } from '../audio/mount'
 
 export { useCampaign, getMissionOrder, getState } from './store'
 export { send, type SendResult } from './send'
@@ -54,6 +55,11 @@ export function init(options: InitOptions): () => void {
 
   const teardownWake = registerWakeLifecycle()
   const teardownMultiTab = registerMultiTab()
+  // Bring the audio subsystem to life: subscribe warnings to the engine relay,
+  // pre-decode eager cues, and advance the staleness token on phase changes.
+  // Safe before any gesture: the context stays suspended and muted until the
+  // diegetic ENABLE SOUND prompt resumes it.
+  const teardownAudio = mountAudio()
   const onHidden = (): void => {
     if (document.visibilityState === 'hidden') flushPending()
   }
@@ -67,6 +73,7 @@ export function init(options: InitOptions): () => void {
   return () => {
     teardownWake()
     teardownMultiTab()
+    teardownAudio()
     document.removeEventListener('visibilitychange', onHidden)
     window.removeEventListener('pagehide', onPageHide)
   }
