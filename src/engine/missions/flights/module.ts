@@ -509,6 +509,20 @@ export function makeFlightsMission(
       const resolved = board.resolved
       const tier = tierFromResolved(resolved, payload.tierThresholds)
       const magnitude = payload.flightsDisruptedTable[tier]
+      // Campaign-divergence metrics the selectors read (campaign/selectors.ts).
+      // The scoreboard here is built over the settled flights (finalFlights has
+      // already turned airborne->stranded and held->heldFinal), so board.heldFlights
+      // is every flight held AT the deadline and board.strandedFlights is every
+      // flight that denied service by stranding.
+      //   wopr_resolved: every held/heldFinal flight is a forced-inactivity
+      //     "resolved exception" WOPR counts, so selectOpenExceptions drops by the
+      //     full held fleet under GROUND ALL. Flight-scale, 0..fleetSize.
+      //   service_cost: the real damage = flights that denied service = stranded
+      //     flights plus flights still held at the deadline. Flight-scale (not
+      //     passenger-scale), >= 0, integer, deterministic. Clean walkthrough ~0;
+      //     GROUND ALL drives both high.
+      const woprResolved = board.heldFlights
+      const serviceCost = board.strandedFlights + board.heldFlights
       return {
         missionId: FLIGHTS_MISSION_ID,
         cause,
@@ -524,6 +538,8 @@ export function makeFlightsMission(
           landed_flights: board.landedFlights,
           stranded_flights: board.strandedFlights,
           grounded: board.grounded ? 1 : 0,
+          wopr_resolved: woprResolved,
+          service_cost: serviceCost,
         },
         clueId: null,
         consequences:
