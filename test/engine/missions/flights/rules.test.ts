@@ -187,8 +187,10 @@ describe('tiering from passenger aggregation', () => {
     })
     const tally = tallyPassengers(FIXTURE_PAYLOAD, state)
     expect(tally).toEqual({ onTime: 100, late: 0, diverted: 80, stranded: 60, held: 40 })
-    // resolved = 100 + 80 + 40 = 220 -> partial (>=180, <260).
-    expect(resolvedPassengers(tally)).toBe(220)
-    expect(tierFromResolved(220, FIXTURE_PAYLOAD.tierThresholds)).toBe('partial')
+    // resolved counts only passengers who REACHED a destination: 100 + 80 =
+    // 180. Held passengers (40) do NOT count toward the tier, they only count
+    // as WOPR-resolved exceptions. 180 -> partial (>=180, <260).
+    expect(resolvedPassengers(tally)).toBe(180)
+    expect(tierFromResolved(180, FIXTURE_PAYLOAD.tierThresholds)).toBe('partial')
   })
 })

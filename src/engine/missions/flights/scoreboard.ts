@@ -10,7 +10,9 @@ import type { PassengerTally } from './rules'
 
 export interface FlightsScoreboard {
   readonly tally: PassengerTally
-  /** Safely-resolved passengers (on time + late + diverted + held). */
+  /** Passengers who REACHED a destination (on time + late + diverted). Held,
+   *  grounded, and stranded passengers do NOT count: the success tier scores
+   *  real arrivals, not WOPR's resolved-exception tally. */
   readonly resolved: number
   /** Flights currently held or heldFinal. Each is a WOPR-resolved
    *  exception the campaign exception count subtracts. */

@@ -1,0 +1,18 @@
+# GROUND ALL FLIGHTS content + seeds (section-02) review
+
+Reviewer: deep-implement:code-reviewer. SEND-BACK. The provenance scaffolding is sound (F06 DERIVED->C17/R04, validator cleanly structured, invented names, no em-dashes, reference-only), but the two invariants that DEFINE this mission are not enforced by the authored content — they are faked by fixture timing and by validator rules that check existence rather than meaning.
+
+## HIGH
+- **H1. Blanket GROUND ALL does not actually strand passengers; it WINS.** rules.ts counts held passengers as RESOLVED and the authored full threshold equals total souls, so GROUND ALL issued near t=0 (before departures) holds all flights, resolves everyone, and settles FULL with zero stranded. The adversarial only "fails" because the test fixture grounds at t+55s (hand-tuned) so some flights are already airborne. The spec's load-bearing invariant — grounding improves OPEN EXCEPTIONS but strands passengers / worsens the real aggregate — is FALSE in the data. Nothing asserts grounding worsens the aggregate.
+- **H2. Evidence contradiction reproduced (mission 1's cardinal bug): PROBE/CHECK SOURCE on the storm-CLOSED corridor reports it CLEAR.** Every corridor's fieldReportRecordId points at the single record W02 ("east corridor open, CONFIRMED"), including the NW corridor the storm closes. Four of five corridors return a field report about a different corridor. The validator only checks the record exists + has a deskChecks row, never that the report matches that corridor's true state, so the lie passes CI.
+- **H3. The plan's per-corridor field reports were not added and cannot be under the split-01 seed invariant** (seed-validation pins exactly 2 OBSERVED / 3 non-OBSERVED per seed). So the decoy (independent local-weather warning) and the open-corridor field report collapse onto one record. This plan-vs-schema conflict was silently worked around instead of surfaced; resolve it (relax/evolve the invariant to allow truthful per-corridor reports, or model them as a distinct record kind).
+
+## MEDIUM
+- **M1. The correction lead-margin is vacuous — the forecast arrives ~50s AFTER the decision it informs.** The affected flight commits/lands by ~12-52s; the correction fires at offset 100 with lastSafeDecisionAt=160 (pure fiction). The validator ties lastSafeDecisionAt only to the origin hub window, never to the flight's real commit time, so the 30s lead guarantees nothing and the "forecast-before-decision" test re-checks the same vacuous relation.
+- **M2. The opening dilemma and the DIVERT queue cost are never exercised.** 8 flights / 8 runway slots, each bound to its own destination, so no flight is ever forced to divert into a queue; the queue-delay difficulty is structurally irrelevant and the solvability tests never route a DIVERT.
+
+## LOW
+- The solvability sample time is a magic constant (FLIGHTS_T0 + 119_000) tied to specific offsets; derive it structurally. Plan named seed-one.ts etc.; the real catalog is a single catalog.ts (agent targeted it correctly).
+
+## Bottom line
+Re-author so (a) held/grounded passengers count as STRANDED for the success tier while still counting as WOPR-resolved OPEN EXCEPTIONS (the WOPR-tally-vs-real-outcome divergence is this mission's thesis), so grounding everything truly fails; (b) each probe-able corridor has a TRUTHFUL field report resolving to its real state, with a validator rule asserting the report matches the storm track; resolve the OBSERVED-count conflict with split 01 to allow those records; (c) tie lastSafeDecisionAt to the affected flight's real commit time and prove a real forecast lead; (d) force at least one genuine DIVERT-into-a-queue in the walkthrough so the queue cost bites. Do not fake it with fixture timing.

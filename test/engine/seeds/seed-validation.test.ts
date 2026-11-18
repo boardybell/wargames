@@ -8,9 +8,24 @@ import {
   seedCatalogMetadata,
 } from '@engine/seeds/catalog'
 import { buildRecordGraph, isIndependentObservation } from '@engine/records'
+import type { FlightsPayload } from '@engine/missions/flights/content'
 import { assertJsonSafe } from '../harness/canonical'
 
 const seeds = SEED_NAMES.map((name) => SEED_CATALOG[name]!)
+
+/** The set of OBSERVED record ids that back a flights corridor field report.
+ *  These are a distinct, validated record class (every corridor needs a
+ *  truthful per-corridor report), so they are excluded from the core
+ *  decoy-plus-finale OBSERVED count. The storm-closed corridor's report and
+ *  the open corridor's report both live here. */
+function corridorReportIds(seed: (typeof seeds)[number]): Set<string> {
+  const payload = seed.missionPayloads['flights'] as FlightsPayload | null
+  const ids = new Set<string>()
+  if (payload) {
+    for (const corridor of payload.corridors) ids.add(corridor.fieldReportRecordId)
+  }
+  return ids
+}
 
 describe.each(seeds.map((s) => [s.name, s] as const))(
   'seed validation: %s',
@@ -63,7 +78,7 @@ describe.each(seeds.map((s) => [s.name, s] as const))(
       )
     })
 
-    it('the role structure holds: exercise root, derived chain, two observed (decoy + field report)', () => {
+    it('the role structure holds: exercise root, derived chain, observed decoy + corridor reports + finale report', () => {
       const root = seed.records.find((r) => r.origin === 'EXERCISE')
       expect(root?.runId).toBe(seed.exerciseRunId)
       expect(root?.parentId).toBeNull()
@@ -73,16 +88,36 @@ describe.each(seeds.map((s) => [s.name, s] as const))(
         derived.some((other) => other.id === r.parentId),
       )
       expect(leaf?.subsystem).toBe('bank')
+      // OBSERVED records partition into a coherent, parallel class structure:
+      // per-corridor field reports (the open-corridor decoy and the
+      // storm-closed corridor report) plus the finale field report. Every
+      // OBSERVED record belongs to exactly one role; nothing is orphaned.
       const observed = seed.records.filter((r) => r.origin === 'OBSERVED')
-      expect(observed).toHaveLength(2)
-      // One is the local-scope decoy occurring during the incident; the
-      // other is the finale field report (the later OBSERVED record).
+      const reportIds = corridorReportIds(seed)
       const fieldReportId = FINALE_FIELD_REPORT[seed.name]
-      const decoy = observed.find((r) => r.id !== fieldReportId)
-      expect(decoy, 'a distinct decoy OBSERVED record').toBeTruthy()
+      // The finale report is OBSERVED and is NOT a corridor field report.
+      expect(reportIds.has(fieldReportId!)).toBe(false)
+      expect(
+        seed.records.find((r) => r.id === fieldReportId)?.origin,
+      ).toBe('OBSERVED')
+      // The decoy is the open-corridor field report, occurring during the
+      // incident and before the finale report; it is a corridor report.
+      const payload = seed.missionPayloads['flights'] as FlightsPayload
+      const openReportId = payload.corridors.find(
+        (c) => c.id === payload.corridors[1]!.id,
+      )!.fieldReportRecordId
+      const decoy = seed.records.find((r) => r.id === openReportId)
+      expect(decoy?.origin, 'the open-corridor decoy OBSERVED record').toBe('OBSERVED')
+      expect(reportIds.has(openReportId)).toBe(true)
       expect(decoy!.eventTime).toBeLessThan(
-        observed.find((r) => r.id === fieldReportId)!.eventTime,
+        seed.records.find((r) => r.id === fieldReportId)!.eventTime,
       )
+      // Every OBSERVED record is accounted for: a corridor report or the
+      // finale report, nothing else.
+      for (const record of observed) {
+        const accounted = reportIds.has(record.id) || record.id === fieldReportId
+        expect(accounted, `OBSERVED ${record.id} has a role`).toBe(true)
+      }
     })
 
     it('independence discriminates: observed pass, exercise and derived fail', () => {
@@ -98,7 +133,13 @@ describe.each(seeds.map((s) => [s.name, s] as const))(
       const independentCount = seed.records.filter(
         (r) => isIndependentObservation(graph, r.id, run).independent,
       ).length
-      expect(independentCount).toBe(2)
+      // Exactly the OBSERVED records are independent: the decoy, the finale
+      // report, and the per-corridor field reports. Provenance stays coherent
+      // (no DERIVED or EXERCISE record ever reads as independent).
+      const observedCount = seed.records.filter(
+        (r) => r.origin === 'OBSERVED',
+      ).length
+      expect(independentCount).toBe(observedCount)
     })
 
     it('every mission has a clue source: inspection-gated or module-driven', () => {

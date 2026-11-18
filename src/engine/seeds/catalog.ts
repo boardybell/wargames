@@ -16,6 +16,13 @@ import {
   OUTLOOK_PAYLOAD_K11,
   OUTLOOK_PAYLOAD_T58,
 } from '../missions/outlook/payloads'
+import type { FlightsPayload } from '../missions/flights/content'
+import { flightsSchedule } from '../missions/flights/module'
+import {
+  FLIGHTS_PAYLOAD_R04,
+  FLIGHTS_PAYLOAD_K11,
+  FLIGHTS_PAYLOAD_T58,
+} from '../missions/flights/payloads'
 
 export const MISSION_IDS = ['outlook', 'flights', 'bank'] as const
 export const FINALE_ID = 'finale'
@@ -62,6 +69,7 @@ interface SeedSpec {
   deskChecks: DeskCheckEntry[]
   clueRecords: ClueRecordEntry[]
   outlookPayload: OutlookPayload
+  flightsPayload: FlightsPayload
   openExceptionsBaseline: number
 }
 
@@ -76,7 +84,7 @@ function build(spec: SeedSpec): SeedDefinition {
     clueRecords: spec.clueRecords,
     missionPayloads: {
       outlook: spec.outlookPayload,
-      flights: null,
+      flights: spec.flightsPayload,
       bank: null,
       finale: null,
     },
@@ -98,30 +106,11 @@ function build(spec: SeedSpec): SeedDefinition {
           payload: null,
         },
       ],
-      flights: [
-        ...milestones(),
-        {
-          id: 'storm-step-1',
-          offsetSeconds: 60,
-          anchor: 'start',
-          kind: 'stormStep',
-          payload: null,
-        },
-        {
-          id: 'forecast-correction',
-          offsetSeconds: 100,
-          anchor: 'start',
-          kind: 'forecastCorrection',
-          payload: null,
-        },
-        {
-          id: 'storm-step-2',
-          offsetSeconds: 160,
-          anchor: 'start',
-          kind: 'stormStep',
-          payload: null,
-        },
-      ],
+      // The real flights schedule is materialized from the payload (start,
+      // departures, storm steps, forecast leads, correction, window closes,
+      // and the end settle tick) plus the shared end-anchored warnings the
+      // seed-validation invariant asserts on every mission.
+      flights: [...milestones(), ...flightsSchedule(spec.flightsPayload)],
       bank: [
         ...milestones(),
         {
@@ -226,6 +215,20 @@ const seedOneRecords: EvidenceRecord[] = [
     ],
   },
   {
+    id: 'W05',
+    origin: 'OBSERVED',
+    sourceId: 'FIELD-NW2',
+    parentId: null,
+    runId: null,
+    eventTime: 76458,
+    receiptTime: 76463,
+    subsystem: 'flights',
+    body: [
+      'RELAY: NORTHWEST CORRIDOR REPORTED CLEAR',
+      'AWAITING FIELD DESK CONFIRMATION OF THE CORRIDOR',
+    ],
+  },
+  {
     id: 'R21',
     origin: 'OBSERVED',
     sourceId: 'FIELD-DESK',
@@ -273,6 +276,12 @@ const seedOne = build({
       replyBody: ['FIELD DESK CONFIRMS LOCAL SCOPE, NORTHWEST ONLY'],
     },
     {
+      recordId: 'W05',
+      outcome: 'CONTRADICTED',
+      delaySeconds: 25,
+      replyBody: ['FIELD DESK CONTRADICTS: NORTHWEST CORRIDOR CLOSED BY THE STORM FRONT'],
+    },
+    {
       recordId: 'R21',
       outcome: 'CONFIRMED',
       delaySeconds: 45,
@@ -284,6 +293,7 @@ const seedOne = build({
     { recordId: 'B04', clueId: CLUE_IDS.ledgerHold },
   ],
   outlookPayload: OUTLOOK_PAYLOAD_R04,
+  flightsPayload: FLIGHTS_PAYLOAD_R04,
   openExceptionsBaseline: 12,
 })
 
@@ -334,6 +344,17 @@ const seedTwoRecords: EvidenceRecord[] = [
     body: ['FIELD ICING WARNING: SOUTHEAST APPROACH ONLY'],
   },
   {
+    id: 'V10',
+    origin: 'OBSERVED',
+    sourceId: 'FIELD-SE2',
+    parentId: null,
+    runId: null,
+    eventTime: 24138,
+    receiptTime: 24143,
+    subsystem: 'flights',
+    body: ['RELAY: NORTHWEST CORRIDOR REPORTED CLEAR', 'AWAITING FIELD DESK CONFIRMATION'],
+  },
+  {
     id: 'R33',
     origin: 'OBSERVED',
     sourceId: 'FIELD-DESK',
@@ -378,6 +399,12 @@ const seedTwo = build({
       replyBody: ['CONFIRMED: SOUTHEAST APPROACH ONLY'],
     },
     {
+      recordId: 'V10',
+      outcome: 'CONTRADICTED',
+      delaySeconds: 25,
+      replyBody: ['FIELD DESK CONTRADICTS: NORTHWEST CORRIDOR CLOSED BY ICING'],
+    },
+    {
       recordId: 'R33',
       outcome: 'CONFIRMED',
       delaySeconds: 45,
@@ -389,6 +416,7 @@ const seedTwo = build({
     { recordId: 'H03', clueId: CLUE_IDS.ledgerHold },
   ],
   outlookPayload: OUTLOOK_PAYLOAD_K11,
+  flightsPayload: FLIGHTS_PAYLOAD_K11,
   openExceptionsBaseline: 14,
 })
 
@@ -439,6 +467,17 @@ const seedThreeRecords: EvidenceRecord[] = [
     body: ['FIELD CROSSWIND WARNING: WEST RUNWAYS ONLY'],
   },
   {
+    id: 'U09',
+    origin: 'OBSERVED',
+    sourceId: 'FIELD-W2',
+    parentId: null,
+    runId: null,
+    eventTime: 50841,
+    receiptTime: 50846,
+    subsystem: 'flights',
+    body: ['RELAY: NORTHWEST CORRIDOR REPORTED CLEAR', 'AWAITING FIELD DESK CONFIRMATION'],
+  },
+  {
     id: 'R47',
     origin: 'OBSERVED',
     sourceId: 'FIELD-DESK',
@@ -483,6 +522,12 @@ const seedThree = build({
       replyBody: ['CONFIRMED: WEST RUNWAYS ONLY'],
     },
     {
+      recordId: 'U09',
+      outcome: 'CONTRADICTED',
+      delaySeconds: 25,
+      replyBody: ['FIELD DESK CONTRADICTS: NORTHWEST CORRIDOR CLOSED BY CROSSWIND'],
+    },
+    {
       recordId: 'R47',
       outcome: 'CONFIRMED',
       delaySeconds: 45,
@@ -494,6 +539,7 @@ const seedThree = build({
     { recordId: 'K08', clueId: CLUE_IDS.ledgerHold },
   ],
   outlookPayload: OUTLOOK_PAYLOAD_T58,
+  flightsPayload: FLIGHTS_PAYLOAD_T58,
   openExceptionsBaseline: 10,
 })
 

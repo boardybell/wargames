@@ -255,11 +255,16 @@ export function tallyPassengers(
   return { onTime, late, diverted, stranded, held }
 }
 
-/** Safely-resolved passengers: everyone who reached a hub (on time, late,
- *  or diverted) plus everyone safely held on the ground. Stranded
- *  passengers are the loss the scoring penalizes. */
+/** Passengers who actually REACHED a destination by the deadline: landed on
+ *  time, landed late, or diverted and landed. This is the REAL-service
+ *  metric the success tier scores. Held, grounded, and timed-out passengers
+ *  are STRANDED for the tier: they never reached anywhere, so they do NOT
+ *  count here. This is the mission's thesis, the mirror of CRASH OUTLOOK's
+ *  real-outcome vs WOPR-tally divergence: blanket GROUND ALL makes WOPR's
+ *  OPEN EXCEPTIONS fall sharply (every held flight is a resolved exception)
+ *  while this real figure collapses, because nobody actually arrived. */
 export function resolvedPassengers(tally: PassengerTally): number {
-  return tally.onTime + tally.late + tally.diverted + tally.held
+  return tally.onTime + tally.late + tally.diverted
 }
 
 /** The tier ladder, shared by every settlement cause. Integer resolved
