@@ -86,6 +86,11 @@ export interface OutlookState {
   /** The high-water event time the substate has folded acks up to. Lets
    *  terminal() reason over deliveries without a wall clock. */
   readonly ackAsOf: number
+  /** Materialized mission length in ms, from init. Integer. */
+  readonly durationMs: number
+  /** Absolute deadline in ms, stamped from the first event the module
+   *  sees. Null until then. terminal() and evaluate() read it. */
+  readonly endsAt: number | null
 }
 
 const markSchema = v.strictObject({
@@ -130,6 +135,8 @@ export const outlookSaveSchema = v.strictObject({
   auditRead: v.boolean(),
   auditDelivered: v.boolean(),
   ackAsOf: integer,
+  durationMs: integer,
+  endsAt: v.nullable(integer),
 })
 
 export type OutlookStateParsed = v.InferOutput<typeof outlookSaveSchema>

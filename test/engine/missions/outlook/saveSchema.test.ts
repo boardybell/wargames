@@ -39,6 +39,8 @@ const populated: OutlookState = {
   auditRead: true,
   auditDelivered: false,
   ackAsOf: 1_030_000,
+  durationMs: 240_000,
+  endsAt: 1_240_000,
 }
 
 describe('outlook saveSchema', () => {

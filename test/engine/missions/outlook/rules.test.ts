@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   channelAckAt,
   countSatisfiedDeliveries,
+  isAcknowledgedWrongDesk,
   isSatisfiedDelivery,
   tierFromSatisfied,
   validateSend,
@@ -140,9 +141,41 @@ describe('isSatisfiedDelivery: supersession, recipient, ack timing', () => {
     ).toBe(false)
   })
 
-  it('a pending (unacknowledged) send does not satisfy', () => {
+  it('a pending send does NOT satisfy until its ack has folded', () => {
     expect(
       isSatisfiedDelivery(send({ resolution: 'pending' }), weatherMsg, endsAt),
+    ).toBe(false)
+  })
+
+  it('a rejected send never satisfies', () => {
+    expect(
+      isSatisfiedDelivery(send({ resolution: 'rejected' }), weatherMsg, endsAt),
+    ).toBe(false)
+  })
+})
+
+describe('isAcknowledgedWrongDesk', () => {
+  const endsAt = 1_200_000
+
+  it('an acknowledged ack to the wrong desk reads as wrong-desk, not satisfied', () => {
+    const wrong = send({ recipient: 'PAYROLL_DESK', resolution: 'acknowledged' })
+    expect(isAcknowledgedWrongDesk(wrong, weatherMsg, endsAt)).toBe(true)
+    expect(isSatisfiedDelivery(wrong, weatherMsg, endsAt)).toBe(false)
+  })
+
+  it('a correct acknowledged ack is not a wrong-desk delivery', () => {
+    expect(
+      isAcknowledgedWrongDesk(send({ resolution: 'acknowledged' }), weatherMsg, endsAt),
+    ).toBe(false)
+  })
+
+  it('a pending wrong-desk send is not a wrong-desk delivery until it folds', () => {
+    expect(
+      isAcknowledgedWrongDesk(
+        send({ recipient: 'PAYROLL_DESK', resolution: 'pending' }),
+        weatherMsg,
+        endsAt,
+      ),
     ).toBe(false)
   })
 })

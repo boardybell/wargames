@@ -145,3 +145,40 @@ Settlement ordering: the engine's `advanceToNow` must drain acknowledgment event
 - Section 02 authors the three seed payloads against `OutlookPayload` and writes the content validator plus solvability invariants.
 - Section 03 builds the screens; it consumes `validate` rejection reasons for inline disabled states and the emitted events for announcements and cues.
 - Section 04 adds the walkthrough, adversarial, timeout, forfeit, extended-time, and property-test fixtures on top of this module; design `rules.ts` exports so a fast-check suite can drive arbitrary action sequences without reaching into module internals.
+
+## Implementation notes (as built)
+
+Files created: `src/engine/missions/outlook/{types,content,rules,module}.ts` and
+`test/engine/missions/outlook/{saveSchema,rules,module}.test.ts`. Final suite
+543 passing (+47 over the 496 baseline), tsc and eslint clean, pure and
+integer-only, reference-only saveSchema, no em-dashes.
+
+Deviations forced by the real engine interface (vetted in code review):
+
+- The engine has no mission `schedule()` and `reduce` cannot ask the engine to
+  schedule events; the mission queue is populated only from
+  `seed.schedules[missionId]`. So acknowledgments are modeled deterministically:
+  a SEND stamps `scheduledAckAt = now + stageETA` on its SendRecord, and an
+  ack-fold (run on every reduce, i.e. every action and every scheduled/start/
+  warning/endsAt-tick event) flips a pending send to `acknowledged` when
+  `now >= scheduledAckAt AND scheduledAckAt <= endsAt`. A required delivery is
+  satisfied only when ACKNOWLEDGED and routed to the correct desk; completion
+  fires when the third correct ack folds (at the next wake at/after its ack
+  time, or at the endsAt settle-tick which drains on-time acks before the
+  timeout guard). This preserves the authored ack-before-deadline race.
+- Registration is a factory `makeOutlookMission(payload)` closing over the
+  immutable payload plus a `messageById` map, mirroring `makeTestDoubleMission`,
+  because the engine threads neither seed nor payload into
+  reduce/evaluate/terminal/debrief. Pure and per-mission (no aliasing).
+- The deadline is stamped into substate (`durationMs`, nullable `endsAt`
+  integers, reference-only) via an authored offset-0 `outlookStart` event,
+  because the module is not handed the absolute deadline. A settle-tick at
+  endsAt folds boundary acks before the timeout guard (the buzzer).
+- Debrief distinguishes DELIVERED CORRECT / DELIVERED TO WRONG DESK / NOT
+  DELIVERED per required kind, and reports AUDIT ROUTED and clue-found status.
+- Code-review fixes applied before commit: satisfaction requires an acknowledged
+  (folded) ack not a pending one; the early-completion and buzzer tests now
+  drive the engine clock rather than asserting the SEND dispatch; `evaluate`
+  treats a null endsAt as zero satisfiable; per-kind correct/delivered split is
+  real; channel ETA indexes the stage directly (no silent stage-2 fallback);
+  SEND_QUEUED removes by the captured target index.
