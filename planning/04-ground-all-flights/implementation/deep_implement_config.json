@@ -1,0 +1,25 @@
+{
+  "plugin_root": "/Users/darkpool/.claude/plugins/cache/piercelamb-plugins/deep-implement/0.2.1",
+  "sections_dir": "/Users/darkpool/wargames/planning/04-ground-all-flights/sections",
+  "target_dir": "/Users/darkpool/wargames",
+  "state_dir": "/Users/darkpool/wargames/planning/04-ground-all-flights/implementation",
+  "git_root": "/Users/darkpool/wargames",
+  "commit_style": "simple",
+  "test_command": "uv run pytest",
+  "sections": [
+    "section-01-module-rules",
+    "section-02-content-seeds",
+    "section-03-screen-map",
+    "section-04-fixtures-polish"
+  ],
+  "sections_state": {},
+  "pre_commit": {
+    "present": false,
+    "type": "none",
+    "config_file": null,
+    "native_hook": null,
+    "may_modify_files": false,
+    "detected_formatters": []
+  },
+  "created_at": "2026-11-18T20:32:08.066918+00:00"
+}
