@@ -224,6 +224,42 @@ const CITIES: readonly City[] = [
   { name: 'NOVOSIBIRSK', x: 80, y: 30, side: 'SU' },
 ]
 
+// A live LED matrix for the WOPR lamp band: a grid of small red/amber/green
+// lamps blinking on staggered cycles, so the computer looks like it is
+// thinking. Computed once at module load (stable across renders).
+const LAMP_COLORS = ['#ff4133', '#ff4133', '#ffae34', '#ffae34', '#4bd957']
+const WOPR_LAMPS: ReadonlyArray<{ c: string; d: string; t: string; on: boolean }> =
+  Array.from({ length: 46 * 6 }, (_, i) => {
+    const r = (i * 2654435761) >>> 0 // a cheap stable hash per index
+    return {
+      c: LAMP_COLORS[r % LAMP_COLORS.length]!,
+      d: `${((r >> 4) % 220) / 100}s`,
+      t: `${0.4 + ((r >> 8) % 160) / 100}s`,
+      on: (r >> 3) % 3 !== 0,
+    }
+  })
+
+function WoprLights() {
+  return (
+    <div className="wg-wopr-lights" aria-hidden="true" data-testid="wopr-lights">
+      {WOPR_LAMPS.map((l, i) => (
+        <span
+          key={i}
+          className="wg-lamp"
+          style={
+            {
+              '--c': l.c,
+              '--d': l.d,
+              '--t': l.t,
+              opacity: l.on ? 1 : 0.12,
+            } as React.CSSProperties
+          }
+        />
+      ))}
+    </div>
+  )
+}
+
 type Stage =
   | 'hero'
   | 'boot'
@@ -275,6 +311,7 @@ export function WarGamesGame() {
           data-testid="hero"
         >
           <img src="art/hero-desktop.jpg" alt="" />
+          <WoprLights />
           <div className="wg-hero-vignette" />
           <div className="wg-hero-prompt">ACTIVATE TERMINAL</div>
         </div>
