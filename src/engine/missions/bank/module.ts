@@ -31,7 +31,11 @@ import type {
   MissionModule,
   SeedDefinition,
 } from '../types'
-import type { SettledOutcome, SettlementCause } from '../../campaign/types'
+import type {
+  EngineEvent,
+  SettledOutcome,
+  SettlementCause,
+} from '../../campaign/types'
 import type { ScheduledEventSpec } from '../../time'
 import type { BankPayload } from './content'
 import {
@@ -570,6 +574,26 @@ export function makeBankMission(
             ? [{ id: 'cq-bank', kind: 'paymentsDelayed', magnitude }]
             : [],
       }
+    },
+
+    drainEmitted(prev: BankState, next: BankState): readonly EngineEvent[] {
+      // A downward confidence crossing grows injectedThresholds inside the tick
+      // reduce. Diff the prior and next consumed-threshold sets and emit one
+      // DISTINCT crossing event per newly consumed threshold, carrying its
+      // integer value, so the shell keys its cue off the event's identity
+      // rather than diffing substate. Pure over (prev, next) and
+      // replay-reproducible: a plain tick that crosses nothing emits nothing.
+      if (next.injectedThresholds.length === prev.injectedThresholds.length) {
+        return []
+      }
+      const before = new Set(prev.injectedThresholds)
+      const events: EngineEvent[] = []
+      for (const value of next.injectedThresholds) {
+        if (!before.has(value)) {
+          events.push({ type: 'bankThresholdCrossed', threshold: value })
+        }
+      }
+      return events
     },
 
     terminal(state) {

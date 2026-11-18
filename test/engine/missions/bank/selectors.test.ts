@@ -5,9 +5,14 @@ import {
   broadHoldActive,
   buildScoreboard,
   selectDerivedCash,
+  selectObservedWithdrawals,
   selectPredictedWithdrawals,
 } from '@engine/missions/bank/selectors'
-import type { AccountState, BankState } from '@engine/missions/bank/types'
+import type {
+  AccountState,
+  BankState,
+  RequestState,
+} from '@engine/missions/bank/types'
 import { FIXTURE_PAYLOAD } from './fixtures'
 
 function acct(over: Partial<AccountState> = {}): AccountState {
@@ -47,6 +52,39 @@ describe('selectDerivedCash', () => {
 
   it('the empty account map is zero cash', () => {
     expect(selectDerivedCash(stateWith({}))).toBe(0)
+  })
+})
+
+describe('selectObservedWithdrawals: the OBSERVED total', () => {
+  function req(over: Partial<RequestState> = {}): RequestState {
+    return {
+      outcome: 'applied',
+      appliedAmount: 0,
+      arrivedAfterHold: false,
+      injected: false,
+      ...over,
+    }
+  }
+
+  it('sums the dollars actually drawn by every RESOLVED request, skipping pending', () => {
+    const s = stateWith(
+      { A: acct() },
+      {
+        requests: {
+          R1: req({ outcome: 'applied', appliedAmount: 300 }),
+          R2: req({ outcome: 'partial', appliedAmount: 120 }),
+          R3: req({ outcome: 'refused', appliedAmount: 0 }),
+          R4: req({ outcome: 'pending', appliedAmount: 0 }),
+        },
+      },
+    )
+    // 300 + 120 + 0, pending contributes nothing.
+    expect(selectObservedWithdrawals(s)).toBe(420)
+  })
+
+  it('is zero with no resolved requests', () => {
+    const s = stateWith({ A: acct() })
+    expect(selectObservedWithdrawals(s)).toBe(0)
   })
 })
 

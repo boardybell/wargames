@@ -39,6 +39,21 @@ export function selectPredictedWithdrawals(
   )
 }
 
+/** The OBSERVED withdrawal total so far: the sum of dollars actually drawn by
+ *  every resolved request. A pure display projection over substate, computed by
+ *  the SAME owner as selectPredictedWithdrawals so both lines of the tell share
+ *  one source. NOTHING in rules.ts or the reduce path reads this; the divergence
+ *  from the WOPR PREDICTED line (holding lifts the prediction while the real
+ *  draws do not follow) is the mission tell. Integer-only. */
+export function selectObservedWithdrawals(state: BankState): number {
+  let total = 0
+  for (const rs of Object.values(state.requests)) {
+    if (rs.outcome === 'pending') continue
+    total += rs.appliedAmount
+  }
+  return total
+}
+
 /** Whether the broad hold is currently active: it has stamped and at least
  *  one account is still held. A full release drops the line back. */
 export function broadHoldActive(state: BankState): boolean {

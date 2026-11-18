@@ -309,6 +309,29 @@ describe('threshold injection through the real engine', () => {
     // EMBER opening 900 minus the 150 base draw.
     expect(sub.accounts['EMBER']!.balance).toBe(750)
   })
+
+  it('emits a DISTINCT bankThresholdCrossed event carrying the crossed value, once', () => {
+    const envs: Envelope[] = [
+      start(),
+      [holdAct('ANCHORA'), BANK_T0 + 1_000],
+      [holdAct('BELROSE'), BANK_T0 + 2_000],
+      [holdAct('CALDERA'), BANK_T0 + 3_000],
+    ]
+    const { emitted } = drive(ctx, envs, BANK_T0 + 65_000)
+    const crossings = emitted.filter((e) => e.type === 'bankThresholdCrossed')
+    // Exactly one crossing event, carrying the integer threshold value.
+    expect(crossings).toHaveLength(1)
+    expect(crossings[0]).toEqual({ type: 'bankThresholdCrossed', threshold: 40 })
+  })
+
+  it('a plain confidence tick that crosses NO threshold emits no crossing event', () => {
+    // No holds: confidence never falls toward the 40 threshold, so no tick in
+    // the whole window crosses it. Every emitted event is a plain tick or wave.
+    const { emitted } = drive(ctx, [start()], BANK_T0 + 200_000)
+    expect(
+      emitted.some((e) => e.type === 'bankThresholdCrossed'),
+    ).toBe(false)
+  })
 })
 
 describe('clue is engine-owned (structural)', () => {

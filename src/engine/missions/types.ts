@@ -7,6 +7,7 @@ import type { EvidenceRecord, SourceCheckOutcome } from '../records'
 import type { ScheduledEventSpec } from '../time'
 import type {
   Consequence,
+  EngineEvent,
   MissionId,
   SettledOutcome,
   SettlementCause,
@@ -87,6 +88,12 @@ export interface MissionModule<S = unknown> {
   /** Amendment 6: polled after every reduce; new ids merge
    *  monotonically into cluesFound with clueFound events. */
   clues?(state: S): readonly string[]
+  /** Distinct engine events a reduce produced as a side effect of the state
+   *  move, drained once per reduce by diffing the prior and next substate
+   *  (pure, deterministic, replay-reproducible). The engine emits whatever this
+   *  returns alongside the triggering event, so a shell can key a cue off the
+   *  event's identity rather than diffing state itself. */
+  drainEmitted?(prev: S, next: S): readonly EngineEvent[]
   /** The display payload a settled mission's debrief renders; absent
    *  modules fall back to the raw SettledOutcome via
    *  selectSettledOutcome. */

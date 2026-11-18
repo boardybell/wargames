@@ -110,6 +110,10 @@ export type EngineEvent =
       readonly outcome: SourceCheckOutcome
       readonly arrivedAfterSettlement: boolean
     }
+  | {
+      readonly type: 'bankThresholdCrossed'
+      readonly threshold: number
+    }
   | { readonly type: 'debriefAcknowledged'; readonly missionId: MissionId }
   | { readonly type: 'clueFound'; readonly clueId: string }
   | { readonly type: 'finaleFinalPhase' }

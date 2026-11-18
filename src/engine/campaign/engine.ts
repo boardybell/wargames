@@ -262,6 +262,11 @@ function applyProcessedEvent(
     payload,
     now: event.scheduledAt,
   })
+  if (module.drainEmitted) {
+    for (const e of module.drainEmitted(runtime.substate, substate)) {
+      emitted.push(e)
+    }
+  }
   let next: CampaignState = {
     ...state,
     rng,
