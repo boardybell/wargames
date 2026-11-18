@@ -2,7 +2,7 @@
 // else in src/app is pure or render-pure so the shell stays testable.
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import { App } from './App'
+import { WarGamesGame } from './game/WarGamesGame'
 import { initTheme } from './theme'
 import './theme/theme.css'
 
@@ -16,6 +16,6 @@ if (!container) {
 initTheme()
 createRoot(container).render(
   <StrictMode>
-    <App />
+    <WarGamesGame />
   </StrictMode>,
 )

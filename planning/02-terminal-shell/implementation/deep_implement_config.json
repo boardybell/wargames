@@ -54,6 +54,10 @@
     "section-09-a11y-glossary": {
       "status": "complete",
       "commit_hash": "f79ed66"
+    },
+    "section-10-art-slots-extras": {
+      "status": "complete",
+      "commit_hash": "494acab"
     }
   },
   "pre_commit": {
