@@ -7,10 +7,10 @@
   },
   "slots": {
     "hero-desktop": {
-      "targetW": 2560,
-      "targetH": 1440,
+      "targetW": 1920,
+      "targetH": 1080,
       "tolerancePx": 24,
-      "derivation": "16/9 full-bleed hero at the 1280px desktop box, 2x: 1280x720 CSS -> 2560x1440"
+      "derivation": "16/9 full-bleed hero, approved WOPR console art (325ef0c: charcoal cabinet, red/amber/green LED band, CRT WOPR label) ships native 1920x1080"
     },
     "hero-portrait": {
       "targetW": 1080,

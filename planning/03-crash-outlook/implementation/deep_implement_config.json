@@ -24,6 +24,10 @@
     "section-03-screen-views": {
       "status": "complete",
       "commit_hash": "298b68f"
+    },
+    "section-04-fixtures-polish": {
+      "status": "complete",
+      "commit_hash": "d886816"
     }
   },
   "pre_commit": {

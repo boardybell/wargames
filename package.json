@@ -6,6 +6,7 @@
   "description": "SHALL WE PLAY A GAME? A WarGames-inspired browser campaign.",
   "scripts": {
     "test": "vitest run",
+    "test:e2e": "playwright test",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "dev": "vite",
@@ -20,6 +21,7 @@
   },
   "devDependencies": {
     "@fast-check/vitest": "^0.2.0",
+    "@playwright/test": "^1.65.1",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.3",
     "@testing-library/user-event": "^14.6.12",

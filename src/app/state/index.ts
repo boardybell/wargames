@@ -3,7 +3,12 @@
 // this layer; nothing outside src/app/state/ calls engine dispatch or
 // advanceToNow directly. setState and the storage internals stay private.
 import { createCampaign, type EngineContext, type StoragePort } from '@engine'
-import { setContext, setState } from './store'
+import {
+  setContext,
+  setContextFactory,
+  rebindContextForSeed,
+  setState,
+} from './store'
 import { registerWakeLifecycle, wake } from './wake'
 import {
   flushPending,
@@ -13,7 +18,12 @@ import {
 import { registerMultiTab } from './multiTab'
 import { mountAudio } from '../audio/mount'
 
-export { useCampaign, getMissionOrder, getState, getContext } from './store'
+export {
+  useCampaign,
+  getMissionOrder,
+  getState,
+  getContext,
+} from './store'
 export { send, type SendResult } from './send'
 export { wake } from './wake'
 export { onEngineEvent, type EngineEventConsumer, type Unsubscribe } from './events'
@@ -33,6 +43,11 @@ export interface InitOptions {
   readonly seedName: string
   /** Override the localStorage port (tests inject an in-memory one). */
   readonly port?: StoragePort
+  /** Per-seed context builder. When provided, the store rebinds the mission
+   *  modules to the active seed: once here if a restored save used a different
+   *  seed than ctx binds, and again on any NEW_CAMPAIGN seed switch. Omit it
+   *  (tests) to keep the single injected ctx for the whole session. */
+  readonly contextFactory?: (seedName: string) => EngineContext
 }
 
 /** Called once at App boot: load the save, restore or create the campaign,
@@ -40,18 +55,26 @@ export interface InitOptions {
  *  teardown that tests use to unregister listeners. */
 export function init(options: InitOptions): () => void {
   setContext(options.ctx)
+  if (options.contextFactory) setContextFactory(options.contextFactory)
   if (options.port) setPort(options.port)
 
   const loaded = loadAtBoot()
-  setState(
-    loaded.state ??
+  if (loaded.state) {
+    // A restored save may carry a different seed than the boot ctx binds; the
+    // mission modules close over one seed's payload, so rebind to the saved
+    // seed before any screen reads content. No-op without a factory.
+    rebindContextForSeed(loaded.state.seedName)
+    setState(loaded.state)
+  } else {
+    setState(
       createCampaign(
         options.ctx,
         options.seedName,
         { extendedTime: false },
         Date.now(),
       ),
-  )
+    )
+  }
 
   const teardownWake = registerWakeLifecycle()
   const teardownMultiTab = registerMultiTab()

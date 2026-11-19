@@ -5,6 +5,14 @@
 // timerMilestone schedule, and a reference-only substate schema. It
 // also records every input it sees so tests can prove missions receive
 // draws and times only through events.
+export {
+  SHORT_DEADLINE_SEED,
+  SHORT_DEADLINE_SEED_NAME,
+  SHORT_MISSION_MS,
+  SHORT_FINALE_MS,
+  makeShortDeadlineSeed,
+} from './short-deadline-seed'
+
 import * as v from 'valibot'
 import type {
   EvaluatedOutcome,

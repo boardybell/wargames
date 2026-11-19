@@ -4,6 +4,8 @@
 // board escalates to DEFCON 1 -> WOPR runs every scenario and learns futility
 // -> THE ONLY WINNING MOVE IS NOT TO PLAY -> a nice game of chess.
 import { useEffect, useMemo, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
+import { bootApp } from '../boot'
 import './game.css'
 
 // ---------- sound (created and resumed on the activation gesture) ----------
@@ -270,10 +272,30 @@ type Stage =
   | 'war'
   | 'learn'
   | 'end'
+  | 'campaign'
 
 const STAGES: readonly Stage[] = [
   'hero', 'boot', 'greeting', 'menu', 'chess', 'side', 'war', 'learn', 'end',
+  'campaign',
 ]
+
+/** GLOBAL THERMONUCLEAR WAR launches the real campaign: the engine-driven
+ *  CRASH OUTLOOK, GROUND ALL FLIGHTS, FREEZE BANK ACCOUNTS, and the GLOBAL
+ *  FAILSAFE finale. The front end already played the WOPR boot, so the campaign
+ *  skips its own hero and drops straight into SHALL WE PLAY A GAME. bootApp has
+ *  engine init side effects, so it runs exactly once per mount. */
+function Campaign() {
+  const nodeRef = useRef<ReactNode | null>(null)
+  if (nodeRef.current === null) nodeRef.current = bootApp({ skipHero: true })
+  return (
+    <div
+      data-testid="campaign"
+      style={{ position: 'fixed', inset: 0, zIndex: 10 }}
+    >
+      {nodeRef.current}
+    </div>
+  )
+}
 function initialStage(): Stage {
   if (typeof window === 'undefined') return 'hero'
   const q = new URLSearchParams(window.location.search).get('stage')
@@ -317,7 +339,9 @@ export function WarGamesGame() {
         </div>
       )}
 
-      {stage !== 'hero' && (
+      {stage === 'campaign' && <Campaign />}
+
+      {stage !== 'hero' && stage !== 'campaign' && (
         <Screen
           stage={stage}
           side={side}
@@ -358,7 +382,7 @@ function Screen({
           <Typer script={BOOT} cps={90} onDone={() => onStage('greeting')} />
         )}
         {stage === 'greeting' && <Greeting onDone={() => onStage('menu')} />}
-        {stage === 'menu' && <Menu onPick={(g) => onStage(g === 'GLOBAL THERMONUCLEAR WAR' ? 'chess' : 'menu')} />}
+        {stage === 'menu' && <Menu onPick={(g) => onStage(g === 'GLOBAL THERMONUCLEAR WAR' ? 'campaign' : 'menu')} />}
         {stage === 'chess' && <Chess onLater={() => onStage('side')} onChess={() => onStage('end')} />}
         {stage === 'side' && (
           <SidePick

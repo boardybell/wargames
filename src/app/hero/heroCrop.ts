@@ -1,10 +1,7 @@
-// HeroCrop metadata per art asset. Final shipped art (section 02) carries
-// calibrated values authored through the committed click-calibration tool
-// (media/tools/calibrate-core.ts), not eyeballed in an editor: the glass
-// corners were detected on the shipped heroes and run through clicksToFractions,
-// then confirmed via the tool's overlayPixels render at both crops. Glass and
-// greeting are fractions of the natural image size. The portrait is a reframe
-// of the same scene as the desktop hero, so both declare the same scene id.
+// HeroCrop metadata per art asset. Authored here for the placeholder and the
+// first generated hero; final art ships its own calibrated values through the
+// same interface (the click-calibration tool is section 10), so nothing here
+// is throwaway. Glass and greeting are fractions of the natural image size.
 import type { HeroCropFractions } from './glassRect'
 
 export type ArtSlotId = 'hero-desktop' | 'hero-portrait'
@@ -16,20 +13,20 @@ export interface HeroCrop extends HeroCropFractions {
   readonly scene: string
 }
 
-// Calibrated against the shipped command-room heroes. The CRT glass rect and
-// the greeting anchor (the screen's upper-left text origin) come from the
-// calibration tool: desktop natural 2560x1440, portrait natural 1080x1920.
+// The CRT screen sits in the central third of the generated hero; the greeting
+// anchors near the screen's upper-left text origin. Values are eyeballed
+// against the first hero; the calibration tool refines them later.
 export const HERO_CROPS: Readonly<Record<ArtSlotId, HeroCrop>> = {
   'hero-desktop': {
     srcKey: 'hero-desktop',
     scene: 'wopr-command-room',
-    glass: { x: 0.2734, y: 0.0799, w: 0.448, h: 0.6708 },
-    greetingAnchor: { x: 0.3203, y: 0.2222 },
+    glass: { x: 0.34, y: 0.3, w: 0.32, h: 0.4 },
+    greetingAnchor: { x: 0.4, y: 0.38 },
   },
   'hero-portrait': {
     srcKey: 'hero-portrait',
     scene: 'wopr-command-room',
-    glass: { x: 0.2324, y: 0.3052, w: 0.5324, h: 0.2167 },
-    greetingAnchor: { x: 0.2963, y: 0.3438 },
+    glass: { x: 0.22, y: 0.34, w: 0.56, h: 0.3 },
+    greetingAnchor: { x: 0.3, y: 0.4 },
   },
 }

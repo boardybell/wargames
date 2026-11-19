@@ -6,8 +6,9 @@
 // the routing decision here.
 import { useRef, useState } from 'react'
 import { useCampaign } from '../state'
-import { hasSoundPreference } from '../audio'
+import { hasSoundPreference, setSoundPreference } from '../audio'
 import { ScreenRouter } from '../screens'
+import { openOverlay } from '../screens/dialogState'
 import { moveFocusTo } from '../a11y/focus'
 import { prefersReducedMotion } from '../a11y/motion'
 import { decideInitialScreen } from './loadRouting'
@@ -16,16 +17,26 @@ import type { HeroPhotoHandle } from './HeroScene'
 import { SoundPrompt } from './soundPrompt'
 import { runPushIn } from './pushIn'
 
-export function HeroStage() {
+export function HeroStage({ startActivated = false }: { startActivated?: boolean }) {
   const state = useCampaign()
   const [activated, setActivated] = useState(
-    () => decideInitialScreen(state) === 'engine',
+    // startActivated skips the hero entirely: the WarGamesGame front end already
+    // played the WOPR boot before launching the campaign, so a second hero push
+    // in would be redundant. Otherwise the load routing decides (a mid-engagement
+    // save also skips straight to the engine).
+    () => startActivated || decideInitialScreen(state) === 'engine',
   )
   const [showSoundPrompt, setShowSoundPrompt] = useState(false)
   const terminalRef = useRef<HTMLDivElement>(null)
   const freshAtMount = useRef(
     state.phase === 'menu' && state.settled.length === 0,
   )
+
+  // LIST GAMES opens the new-campaign chooser; SET SOUND ON/OFF records the
+  // audio preference the mute gate and warnings read. Both are shell UI, not
+  // engine phases, so the stage that owns the ScreenRouter wires them.
+  const onListGames = (): void => openOverlay('newCampaign')
+  const onSetSound = (on: boolean): void => setSoundPreference(on ? 'on' : 'off')
 
   const onActivate = (handle: HeroPhotoHandle): void => {
     const terminalEl = terminalRef.current
@@ -56,7 +67,7 @@ export function HeroStage() {
   if (activated) {
     return (
       <>
-        <ScreenRouter />
+        <ScreenRouter onListGames={onListGames} onSetSound={onSetSound} />
         {showSoundPrompt && (
           <SoundPrompt onAnswered={() => setShowSoundPrompt(false)} />
         )}
@@ -73,7 +84,7 @@ export function HeroStage() {
         data-testid="terminal-beneath"
         style={{ position: 'absolute', inset: 0, opacity: 0 }}
       >
-        <ScreenRouter />
+        <ScreenRouter onListGames={onListGames} onSetSound={onSetSound} />
       </div>
       <HeroScene onActivate={onActivate} />
     </>

@@ -10,10 +10,30 @@ import type { CampaignState } from '@engine'
 
 let context: EngineContext | null = null
 let state: CampaignState | null = null
+let contextFactory: ((seedName: string) => EngineContext) | null = null
 const listeners = new Set<() => void>()
 
 export function setContext(ctx: EngineContext): void {
   context = ctx
+}
+
+/** Register the per-seed context builder so the store can rebind the mission
+ *  modules when the active campaign switches seeds (NEW_CAMPAIGN to a different
+ *  seed). The mission modules close over one seed's payload, so a seed change
+ *  must rebuild the context or the screens would render the prior seed's
+ *  content over the new campaign. Set once at boot. */
+export function setContextFactory(
+  factory: (seedName: string) => EngineContext,
+): void {
+  contextFactory = factory
+}
+
+/** Rebuild the context for a seed when a factory is set and the current
+ *  context does not already bind that seed's modules. A no-op without a
+ *  factory (tests inject a fixed context) or when the seed is unchanged. */
+export function rebindContextForSeed(seedName: string): void {
+  if (!contextFactory) return
+  context = contextFactory(seedName)
 }
 
 export function getContext(): EngineContext {

@@ -16,6 +16,14 @@
     "section-01-module-rules": {
       "status": "complete",
       "commit_hash": "3b244ca"
+    },
+    "section-02-content-seeds": {
+      "status": "complete",
+      "commit_hash": "bf9bcc4fb23c527a39ec40ae9d6e1fb87d507a17"
+    },
+    "section-03-screen-map": {
+      "status": "complete",
+      "commit_hash": "d998e20"
     }
   },
   "pre_commit": {
