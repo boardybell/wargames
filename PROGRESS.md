@@ -4,11 +4,11 @@ Live board. Open it in an editor and it updates as each piece lands. The
 authoritative record is `git log --oneline` and the test count; this is the
 human-readable view.
 
-Last updated: the whole engine-driven game logic is DONE and committed -
-engine, shell, all three missions, and the finale (with the WOPR
-tally-vs-reality divergence paying off at the campaign ending). 1406 tests
-passing. Remaining: the art/audio media pass, then deploy (which mounts this
-engine-driven game in place of the standalone page).
+Last updated: the whole game is built - engine, shell, all three missions,
+the finale, and now the full DEC-raster art (13 slots) and WOPR audio (19
+voice lines + ambience). 1458 tests passing. One split left: deploy, which
+mounts this engine-driven game at the app root in place of the standalone
+page, runs the first real-browser pass, and ships it.
 
 ## The two tracks
 
@@ -27,8 +27,8 @@ engine-driven game in place of the standalone page).
 | 04 ground-all-flights (mission 2) | air-traffic routing under a storm | DONE |
 | 05 freeze-bank-accounts (mission 3) | bank-run ledger | DONE |
 | 06 global-failsafe (finale) | WOPR takeover + campaign-level scoring | DONE |
-| 07 art-audio-pipeline (media) | DEC-raster art + audio filling the slots | starting |
-| 08 deploy-and-review | mount the engine shell at the app root, ship it | not started |
+| 07 art-audio-pipeline (media) | DEC-raster art + WOPR audio filling the slots | DONE |
+| 08 deploy-and-review | mount the engine shell at the app root, ship it | starting |
 
 ## Finale split (06) sections (current)
 
