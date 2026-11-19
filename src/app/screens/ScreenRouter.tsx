@@ -19,6 +19,8 @@ import { handleCapturedKey } from './inputStack'
 import { openOverlay, closeOverlay, getOverlay } from './dialogState'
 import { dispatchScreenUiCommand } from './screenUiCommands'
 import { DialogLayer } from './DialogLayer'
+import { FinaleEndingRoute } from '../missions/finale/FinaleEndingRoute'
+import { FINALE_MISSION_ID } from '@engine/missions/finale/module'
 import type { CampaignState } from '@engine'
 
 export type OverlayId = 'settings' | 'help'
@@ -138,7 +140,17 @@ function ActiveScreen({
   readonly state: CampaignState
 }) {
   if (screenId === 'menu') return <MenuScreen />
-  if (screenId === 'debrief') return <DebriefScreen />
+  if (screenId === 'debrief') {
+    // A settled-but-unacknowledged FINALE surfaces its ending here rather than
+    // the generic debrief: the engine settles the finale like any mission
+    // (phase 'debrief'), so without this branch the climax would never reach
+    // the EndingScreen. Regular missions keep DebriefScreen.
+    const pending = pendingDebrief(state)
+    if (pending?.missionId === FINALE_MISSION_ID) {
+      return <FinaleEndingRoute state={state} outcome={pending} />
+    }
+    return <DebriefScreen />
+  }
   if (screenId.startsWith('mission:')) {
     const missionId = state.activeMission?.missionId ?? ''
     const Registered = resolveMissionScreen(missionId)

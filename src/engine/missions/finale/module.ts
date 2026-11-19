@@ -131,6 +131,12 @@ function isCommitChoice(value: unknown): value is CommitChoice {
   return value === 'staged' || value === 'hold' || value === 'repeat'
 }
 
+/** The persisted proved bit for one slot: 1 iff the case certified AND that
+ *  slot carries a record at settlement, else 0. Integer math only. */
+function provedBit(state: FinaleState, slot: FinaleSlot): number {
+  return state.caseValid && state.slots[slot] !== null ? 1 : 0
+}
+
 function isSlot(value: unknown): value is FinaleSlot {
   return (
     value === 'outlook' ||
@@ -373,6 +379,15 @@ export function makeFinaleMission(
           case_valid: state.caseValid ? 1 : 0,
           comparisons_run: state.comparisonsRun,
           field_report_requested: state.fieldReportRequested ? 1 : 0,
+        // The REAL proved-slot set at settlement: one integer 0/1 per slot, set
+        // iff the case certified AND that slot was actually filled. The ending
+        // earned-why reads these persisted bits rather than re-stamping every
+        // slot from the single case_valid flag.
+        proved_outlook: provedBit(state, 'outlook'),
+        proved_flights: provedBit(state, 'flights'),
+        proved_bank: provedBit(state, 'bank'),
+        proved_root: provedBit(state, 'root'),
+        proved_observation: provedBit(state, 'observation'),
         },
         clueId: null,
         consequences: [],

@@ -185,6 +185,85 @@ describe('finale settlement: commit-vs-timeout race guard', () => {
   })
 })
 
+describe('finale settlement: persisted proved-slot metrics', () => {
+  const SLOT_KEYS = [
+    'proved_outlook',
+    'proved_flights',
+    'proved_bank',
+    'proved_root',
+    'proved_observation',
+  ] as const
+
+  it('a certified case persists one proved bit per filled slot at settlement', () => {
+    const { ctx, state, startedAt } = startedFinale()
+    // Corroborate the field report via the engine desk, land the reply, then
+    // fill every slot and certify. The proved bits reflect the REAL
+    // filled-and-validated slots, not the single case_valid flag.
+    let current = dispatch(
+      ctx,
+      state,
+      { type: 'REQUEST_SOURCE_CHECK', recordId: 'FR01' },
+      startedAt + 500,
+    ).state
+    current = advanceCampaign(ctx, current, startedAt + 25_000).state
+    const fills: Array<[string, string]> = [
+      ['outlook', 'C17'],
+      ['flights', 'F06'],
+      ['bank', 'B04'],
+      ['root', 'C17'],
+      ['observation', 'FR01'],
+    ]
+    let now = startedAt + 26_000
+    for (const [slot, recordId] of fills) {
+      current = act(ctx, current, { kind: 'SELECT', slot, recordId }, now).state
+      now += 1_000
+    }
+    current = act(ctx, current, { kind: 'REORDER', ordering: ['C17', 'F06', 'B04'] }, now).state
+    now += 1_000
+    current = act(
+      ctx,
+      current,
+      { kind: 'VALIDATE', caseFile: caseFileFrom(current) },
+      now,
+    ).state
+    expect(finaleState(current).caseValid).toBe(true)
+    now += 1_000
+    const committed = act(ctx, current, { kind: 'COMMIT', choice: 'staged' }, now).state
+    const outcome = settledFinale(committed)!
+    expect(outcome.metrics['case_valid']).toBe(1)
+    for (const key of SLOT_KEYS) {
+      expect(outcome.metrics[key]).toBe(1)
+    }
+  })
+
+  it('an uncertified timeout persists every proved bit as zero', () => {
+    const { ctx, state } = startedFinale()
+    const endsAt = state.activeMission!.endsAt
+    const timedOut = advanceCampaign(ctx, state, endsAt + 1_000)
+    const outcome = settledFinale(timedOut.state)!
+    expect(outcome.metrics['case_valid']).toBe(0)
+    for (const key of SLOT_KEYS) {
+      expect(outcome.metrics[key]).toBe(0)
+    }
+  })
+
+  it('a filled slot on an uncertified case still persists a zero bit (the bit is gated on caseValid)', () => {
+    const { ctx, state, startedAt } = startedFinale()
+    const current = act(
+      ctx,
+      state,
+      { kind: 'SELECT', slot: 'outlook', recordId: 'C17' },
+      startedAt + 1_000,
+    ).state
+    // One slot is filled but the case never certified, so every proved bit is
+    // zero: the persisted bit reflects filled-AND-validated, not filled alone.
+    const committed = act(ctx, current, { kind: 'COMMIT', choice: 'hold' }, startedAt + 2_000).state
+    const outcome = settledFinale(committed)!
+    expect(outcome.metrics['case_valid']).toBe(0)
+    expect(outcome.metrics['proved_outlook']).toBe(0)
+  })
+})
+
 describe('finale settlement: comparisonsRun is display-only', () => {
   it('incrementing comparisonsRun causes no settlement or committed mutation', () => {
     const { ctx, state, startedAt } = startedFinale()
