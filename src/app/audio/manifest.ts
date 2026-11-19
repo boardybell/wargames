@@ -5,6 +5,7 @@
 // eager; voice cues lazy (decode on first play, then cached) to bound PCM
 // memory on phones.
 import type { RecipeId } from './recipes'
+import { urlFor } from '../urlFor'
 
 export type BusName = 'effects' | 'voice' | 'ambience'
 export type CuePolicy = 'exclusive-on-bus' | 'queue' | 'drop-if-stale'
@@ -46,6 +47,7 @@ export type CueId =
   | 'voice-greeting'
 
 const synth = (recipe: RecipeId): CueSource => ({ kind: 'synth', recipe })
+const file = (path: string): CueSource => ({ kind: 'file', url: urlFor(path) })
 
 export const CUE_MANIFEST: Readonly<Record<CueId, CueDefinition>> = {
   'key-tick': { id: 'key-tick', source: synth('key-tick'), bus: 'effects', gain: 0.25, transcript: null, policy: 'drop-if-stale', preload: 'eager' },
@@ -57,10 +59,20 @@ export const CUE_MANIFEST: Readonly<Record<CueId, CueDefinition>> = {
   'warn-10': { id: 'warn-10', source: synth('warn-10'), bus: 'effects', gain: 0.6, transcript: 'TEN SECONDS REMAIN', policy: 'queue', preload: 'eager', caption: true },
   'settle-good': { id: 'settle-good', source: synth('settle-good'), bus: 'effects', gain: 0.5, transcript: 'MISSION RESOLVED', policy: 'queue', preload: 'eager' },
   'settle-bad': { id: 'settle-bad', source: synth('settle-bad'), bus: 'effects', gain: 0.5, transcript: 'MISSION LOST', policy: 'queue', preload: 'eager' },
-  'ambience-hum': { id: 'ambience-hum', source: synth('ambience-hum'), bus: 'ambience', gain: 0.2, transcript: 'ROOM TONE', policy: 'exclusive-on-bus', preload: 'eager' },
+  // Room-tone loop: the one bounced audio file (loops need a seamless rendered
+  // join). Shipped as opus primary with an AAC sibling and a seam-continuous
+  // WAV the loop-join CI gate decodes. Gain 0.2 holds it under the voice lines;
+  // ducking is handled by the shell duck node, not here.
+  'ambience-hum': { id: 'ambience-hum', source: file('audio/ambience/room-loop.opus'), bus: 'ambience', gain: 0.2, transcript: 'ROOM TONE', policy: 'exclusive-on-bus', preload: 'eager' },
   'static-burst': { id: 'static-burst', source: synth('static-burst'), bus: 'effects', gain: 0.35, transcript: 'STATIC', policy: 'queue', preload: 'eager' },
-  // Voice cue: a provisional synth placeholder with its transcript filled in;
-  // the media split swaps source to a recording without touching call sites.
+  // Voice cue, preload lazy. The rendered WOPR greeting clip ships under
+  // public/audio/voice/voice-greeting.{opus,aac} (espeak-ng formant, film
+  // register) alongside the catalog clips, but the manifest source stays the
+  // synth placeholder: the committed shell player loads a file cue only once its
+  // decode lands (a later split wires real fetch+decode), and the shell tests
+  // require this cue to be synchronously playable. Swapping the source here now
+  // would break shell playback and its tests without the player work. Source is
+  // the only field held back; the shipped clip is ready for that swap.
   'voice-greeting': { id: 'voice-greeting', source: synth('voice-placeholder'), bus: 'voice', gain: 0.9, transcript: 'GREETINGS PROFESSOR FALKEN. SHALL WE PLAY A GAME?', policy: 'exclusive-on-bus', preload: 'lazy' },
 }
 

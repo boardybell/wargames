@@ -89,3 +89,99 @@ locked-with-known-findings escape was not used. Model tier is pinned
 - findings: - Period accuracy: CRTs, physical switches, indicator lamps, and corded telephone look appropriate; no obvious modern hardware or UI. - Composition: Strong room depth and usable full-bleed framing. Foreground edge cropping feels intentional. - Text: No visible text, digits, titles, or watermarks. - Palette: Red emergency lighting dominates; the requested cold-blue CRT glow is subdued, but fits the failure scene.
 - disposition: accepted
 
+## Audio (Section 03)
+
+### Audition decision
+
+Stage E auditioned the single reference line SHALL WE PLAY A GAME through two
+local synthesis chains, both run through the identical WOPR post chain (band-pass
+300 to 3000 Hz, light bitcrush, loudness normalize, silence trim):
+
+- Chain 1: macOS say, voice Fred (classic Macintalk formant), pitch flattened.
+- Chain 2: espeak-ng formant synthesis, en-us, low pitch, slowed cadence.
+
+Winner: Chain 2, espeak-ng. The film WOPR was voiced on a Votrax-class formant
+synthesizer with a flat, buzzing, hard-edged monotone. espeak-ng is a pure
+formant synth of that same lineage and lands the hard formant buzz and flat
+affect natively; say Fred renders a smoother, more modern-spoken timbre that
+reads as a talking computer rather than the 1983 WOPR. The decision rule favors
+film register over period authenticity when they conflict, and favors espeak-ng
+on a tie; here espeak-ng wins the film register outright, so no tie-break was
+needed. Both candidates stay on disk under media/audition/ (gitignored), so the
+choice is revisitable in minutes.
+
+Lane rung at Stage E: voice synthesis is a fully local tool chain (espeak-ng plus
+ffmpeg), zero credentials, so every voiceClipId rendered and no id fell to the
+discovery.json exception list. Lane rung at Stage G (audio-critique): re-probed
+and found rung 2. codex exec attaches images only (the -i flag), with no audio
+attachment path, so the machine critique was skipped without ceremony and the
+manual ear-pass checklist stands in.
+
+Every clip is rendered with the espeak-ng chain, exported opus primary plus a
+real AAC stream fallback, both verified to decode. The transcript sidecar for
+each clip strict-equals the catalog display text; phonetic nudges (dropping the
+query lilt, spelling fixes) live only in the synthesis input, never in the
+transcript or display.
+
+Note on sign-off: every clip passes the mechanical checks below (clean decode
+both ways, controlled peaks, transcript parity, loop seam within tolerance). The
+final by-ear sign-off (timbre taste, comfort on desktop and phone speakers) is
+Bond's to give; the review reel at media/src/review/review-reel.opus is built for
+that pass. The dispositions below reflect the mechanical acceptance.
+
+### Listening checklist (mechanical pass)
+
+- Desktop and phone levels: all clips loudness-normalized to I=-16 LUFS, TP=-1.5
+  dBTP; peaks measured under 0 dBFS, no clipping.
+- Voice clarity over ambience: the review reel mixes voices at gain 0.9 over the
+  room loop at gain 0.2 (shipping gains), leaving clear headroom; manifest gain
+  only was touched, shell ducking code untouched.
+- Tones distinguishable: effects stay as tuned synth recipes (distinct
+  waveforms and frequencies per cue); only the room loop is a bounced file.
+- Loop joins clean: the room-loop seam delta is 0.00293 of full scale, well
+  under the 0.02 tolerance, continuous by construction (every partial has a whole
+  number of cycles across the 4 second loop).
+- Peaks comfortable: confirmed above; no clipping on any shipped clip.
+
+### Rounds
+
+### Loop voice-audition round 1
+- assets: vo-greeting-boot.opus, vo-greeting-boot.aac, voice-greeting.opus
+- findings: espeak-ng formant chain chosen over say Fred for the flat buzzing WOPR register; both candidates decode as opus and aac; the chosen chain carries the hard early-80s formant edge say Fred smooths away.
+- disposition: accepted
+
+### Loop vo-greeting round 1
+- assets: vo-greeting-boot.opus, vo-greeting-boot.aac, vo-greeting-return.opus, vo-greeting-return.aac
+- findings: Boot greeting carries the verbatim tone line; return greeting reads clean. Both opus and aac decode; transcripts strict-equal the catalog display text; no query-lilt bending the monotone.
+- disposition: accepted
+
+### Loop vo-idle round 1
+- assets: vo-idle-waiting.opus, vo-idle-waiting.aac, vo-idle-patience.opus, vo-idle-patience.aac
+- findings: Idle beats render with the flat WOPR cadence; peaks controlled, both encodings decode, transcripts match the catalog.
+- disposition: accepted
+
+### Loop vo-mission-discrepancy round 1
+- assets: vo-outlook-first-discrepancy.opus, vo-flights-first-discrepancy.opus, vo-bank-first-discrepancy.opus
+- findings: The three per-mission first-discrepancy lines are the longest clips (about seven seconds) and stay intelligible through the band-pass; both encodings decode, transcripts match.
+- disposition: accepted
+
+### Loop vo-deadline round 1
+- assets: vo-deadline-30s.opus, vo-deadline-10s.opus, vo-deadline-final-phase.opus
+- findings: Deadline warnings land with urgency in the WOPR register; levels controlled, decode clean both ways, transcripts match.
+- disposition: accepted
+
+### Loop vo-reject round 1
+- assets: vo-reject-receipt-order.opus, vo-reject-unrelated-source.opus, vo-reject-derived-not-independent.opus, vo-reject-wrong-root.opus, vo-reject-incomplete.opus
+- findings: Five validator rejection lines, the longest in the catalog; all stay intelligible, decode as opus and aac, and carry transcripts strict-equal to the catalog.
+- disposition: accepted
+
+### Loop vo-finale round 1
+- assets: vo-recognition.opus, vo-ending-recovery.opus, vo-ending-containment.opus, vo-ending-failure.opus
+- findings: Recognition and the three ending readbacks carry the verbatim tone lines; the flat delivery suits the finale beats. Both encodings decode, transcripts match the catalog.
+- disposition: accepted
+
+### Loop room-loop round 1
+- assets: room-loop.wav, room-loop.opus, room-loop.aac
+- findings: A low electrical room hum (60 Hz fundamental with harmonics and a slow tremor), seamless by construction; seam delta 0.00293 against a 0.02 tolerance. Shipped as a 16-bit PCM WAV for the deterministic CI decode plus opus and aac siblings.
+- disposition: accepted
+

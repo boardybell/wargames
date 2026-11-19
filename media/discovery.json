@@ -34,37 +34,25 @@
       "timestamp": "2026-11-19T00:33:59.304Z",
       "provenance": null,
       "notes": "critique lane accepted the attachment"
+    },
+    {
+      "stage": "G",
+      "mediaClass": "audio-critique",
+      "rung": 2,
+      "timestamp": "2026-11-18T20:10:00.000Z",
+      "provenance": null,
+      "notes": "re-probed at stage G: codex exec attaches images only (-i), no audio attachment flag, so the audio-critique lane cannot take the review reel. Machine critique skipped; the manual ear-pass checklist in REVIEWS.md stands in."
     }
   ],
   "rungByClass": {
     "image-generate": 1,
     "image-critique": 1,
-    "audio-critique": "pending"
+    "audio-critique": 2
   },
   "modelTierPinned": true,
   "exceptions": {
     "placeholderSlots": [],
-    "missingVoiceClips": [
-      "vo-greeting-boot",
-      "vo-greeting-return",
-      "vo-idle-waiting",
-      "vo-idle-patience",
-      "vo-outlook-first-discrepancy",
-      "vo-flights-first-discrepancy",
-      "vo-bank-first-discrepancy",
-      "vo-deadline-30s",
-      "vo-deadline-10s",
-      "vo-deadline-final-phase",
-      "vo-reject-receipt-order",
-      "vo-reject-unrelated-source",
-      "vo-reject-derived-not-independent",
-      "vo-reject-wrong-root",
-      "vo-reject-incomplete",
-      "vo-recognition",
-      "vo-ending-recovery",
-      "vo-ending-containment",
-      "vo-ending-failure"
-    ],
-    "roomLoopPending": true
+    "missingVoiceClips": [],
+    "roomLoopPending": false
   }
 }

@@ -16,7 +16,9 @@ const repoRoot = fileURLToPath(new URL('../../', import.meta.url))
 const DECODE_BUDGET_BYTES = 8 * 1024 * 1024 // 8 MB decoded PCM ceiling on phones
 const BYTES_PER_SECOND_PCM = 48000 * 2 // 48kHz, 16-bit, mono
 // Worst-case assumed duration for a file cue we cannot probe without decoding.
-const ASSUMED_MAX_SECONDS = 6
+// Set above the longest shipped clip (the mission-discrepancy lines run about
+// seven seconds) so the estimate never undercounts the real worst case.
+const ASSUMED_MAX_SECONDS = 8
 
 // One worst-case decoded estimate for a file cue, measured apart from the
 // shipped (compressed) bytes: the PCM footprint of the assumed-max duration,
