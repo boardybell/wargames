@@ -61,10 +61,11 @@ describe('HeroScene activation', () => {
       toJSON: () => ({}),
     } as DOMRect)
     render(<HeroScene onActivate={() => {}} />)
-    // natural falls back to 1600x900; cover scale 0.75; greetingAnchor
-    // (0.4, 0.38) of the 1200x675 rendered image = (480, 256.5).
+    // natural falls back to 1600x900; cover scale 0.75; rendered 1200x675. The
+    // greeting anchor is the calibrated hero-desktop value (0.3203, 0.2222) from
+    // heroCrop.ts: (0.3203*1200, 0.2222*675) = (384.36, 149.985).
     const greeting = screen.getByTestId('hero-greeting')
-    expect(greeting.style.left).toBe('480px')
-    expect(greeting.style.top).toBe('256.5px')
+    expect(greeting.style.left).toBe('384.36px')
+    expect(greeting.style.top).toBe('149.985px')
   })
 })

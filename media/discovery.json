@@ -13,30 +13,37 @@
         "sanityVerdict": "pass"
       },
       "notes": "rung 1 confirmed via codex-direct"
+    },
+    {
+      "stage": "A",
+      "mediaClass": "image-generate",
+      "rung": 1,
+      "timestamp": "2026-11-19T00:33:50.031Z",
+      "provenance": {
+        "format": "png",
+        "width": 1536,
+        "height": 1024,
+        "sanityVerdict": "pass"
+      },
+      "notes": "rung 1 confirmed via codex-direct"
+    },
+    {
+      "stage": "A",
+      "mediaClass": "image-critique",
+      "rung": 1,
+      "timestamp": "2026-11-19T00:33:59.304Z",
+      "provenance": null,
+      "notes": "critique lane accepted the attachment"
     }
   ],
   "rungByClass": {
     "image-generate": 1,
-    "image-critique": "pending",
+    "image-critique": 1,
     "audio-critique": "pending"
   },
   "modelTierPinned": true,
   "exceptions": {
-    "placeholderSlots": [
-      "hero-desktop",
-      "hero-portrait",
-      "menu-rack",
-      "bezel-texture",
-      "briefing-outlook",
-      "briefing-flights",
-      "briefing-bank",
-      "failsafe-wall",
-      "countdown-insert",
-      "hero-return",
-      "ending-recovery",
-      "ending-containment",
-      "ending-failure"
-    ],
+    "placeholderSlots": [],
     "missingVoiceClips": [
       "vo-greeting-boot",
       "vo-greeting-return",

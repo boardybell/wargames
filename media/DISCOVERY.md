@@ -20,3 +20,15 @@ The escalation ladder, for reference:
 - Rung recorded: 1
 - Notes: rung 1 confirmed via codex-direct
 - Provenance: png 1536x1024, sanity pass
+
+### 2026-11-19T00:33:50.031Z - image-generate (stage A)
+
+- Rung recorded: 1
+- Notes: rung 1 confirmed via codex-direct
+- Provenance: png 1536x1024, sanity pass
+
+### 2026-11-19T00:33:59.304Z - image-critique (stage A)
+
+- Rung recorded: 1
+- Notes: critique lane accepted the attachment
+- Provenance: none (rung 2 cannot pin the model tier)

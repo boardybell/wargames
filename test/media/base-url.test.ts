@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 import { allArtSlots } from '../../src/app/art'
+import { buildLive } from '../../src/app/art/registry'
 
 // Base-aware resolution, gated. Every registered slot whose source is an image
 // must resolve through urlFor/BASE_URL and never be a raw absolute path.
@@ -27,7 +28,11 @@ const BASE = '/'
 
 describe('base-aware image resolution (gated)', () => {
   it('every non-excepted slot carries an image source resolved through urlFor; placeholders skip', () => {
-    const slots = allArtSlots()
+    // Build a FRESH live registry rather than reading the shared module
+    // singleton: another test file calling __resetArtRegistry() could otherwise
+    // leave the shared registry on placeholders and blind this gate under a
+    // non-isolated runner config. buildLive() is deterministic and immune to it.
+    const slots = Object.values(buildLive())
     // Sanity: the registry is the real 13-slot set, not an empty import.
     expect(slots.length).toBeGreaterThan(0)
 

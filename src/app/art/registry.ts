@@ -133,7 +133,41 @@ function seed(): Record<ArtSlotId, ArtSlotEntry> {
   }
 }
 
-let registry: Record<ArtSlotId, ArtSlotEntry> = seed()
+// Slots whose final art has shipped under public/art (media split, section 02).
+// This list is the registry-side mirror of the discovery.json placeholderSlots
+// complement: a slot here is swapped to its exported image at module load, so
+// the live registry resolves it through urlFor while seed() stays all
+// placeholders (the registry unit test asserts the seeded placeholder state and
+// resets to it). Keep this in lockstep with media/discovery.json: a slot leaves
+// placeholderSlots exactly when it is added here.
+const SHIPPED_SLOTS: readonly ArtSlotId[] = [
+  'hero-desktop',
+  'hero-portrait',
+  'hero-return',
+  'menu-rack',
+  'bezel-texture',
+  'countdown-insert',
+  'briefing-outlook',
+  'briefing-flights',
+  'briefing-bank',
+  'failsafe-wall',
+  'ending-recovery',
+  'ending-containment',
+  'ending-failure',
+]
+
+/** Build the live registry: seed placeholders, then swap every shipped slot to
+ *  its exported AVIF image source (base-aware through urlFor). seed() itself is
+ *  left untouched so the placeholder contract the unit test relies on holds. */
+export function buildLive(): Record<ArtSlotId, ArtSlotEntry> {
+  const live = seed()
+  for (const id of SHIPPED_SLOTS) {
+    live[id] = { ...live[id], source: imageSource(`art/${id}.avif`) }
+  }
+  return live
+}
+
+let registry: Record<ArtSlotId, ArtSlotEntry> = buildLive()
 
 export function getArtSlot(id: ArtSlotId): ArtSlotEntry {
   const entry = registry[id]

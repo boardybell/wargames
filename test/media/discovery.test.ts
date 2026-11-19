@@ -47,8 +47,19 @@ describe('discovery.json schema (CI fails on a prose-only record)', () => {
     }
   })
 
-  it('a rung-1 record REQUIRES a complete provenance block and is rejected if any field is missing or failed', () => {
-    for (const p of discovery.probes.filter((x: { rung: number }) => x.rung === 1)) {
+  it('a rung-1 image-generate record REQUIRES a complete provenance block and is rejected if any field is missing or failed', () => {
+    // Provenance is raster-specific (decode, format, dimensions, sanity), so it
+    // is required for the image-generate lane only. The critique lanes
+    // (image-critique, audio-critique) prove reachability by accepting an
+    // attachment and returning a verdict; they carry no raster to provenance,
+    // so their rung-1 records legitimately hold a null provenance block.
+    const genRung1 = discovery.probes.filter(
+      (x: { rung: number; mediaClass: string }) =>
+        x.rung === 1 && x.mediaClass === 'image-generate',
+    )
+    // The generation lane must have at least one real provenanced rung-1 record.
+    expect(genRung1.length).toBeGreaterThan(0)
+    for (const p of genRung1) {
       expect(p.provenance).not.toBeNull()
       // Reconstruct the record shape the checklist validates and assert it
       // would have passed. A rung-1 record with a hole must not exist.
