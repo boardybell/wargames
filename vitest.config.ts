@@ -43,6 +43,17 @@ export default defineConfig({
           setupFiles: ['test/app/setup.ts'],
         },
       },
+      {
+        // The media validation suite: node environment, reads real files under
+        // media/ and public/, imports the same registry/manifest/catalog the
+        // shell consumes so shipped assets cannot drift from the modules.
+        extends: true,
+        test: {
+          name: 'media',
+          environment: 'node',
+          include: ['test/media/**/*.test.ts'],
+        },
+      },
     ],
   },
 })

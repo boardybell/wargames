@@ -1,11 +1,63 @@
 {
-  "probedAt": "2026-11-17",
-  "imageClass": {
-    "rung": 1,
-    "method": "codex-direct",
-    "evidence": "codex exec produced a genuine 1254x1254 PNG raster via bundled image generation",
-    "model": "gpt-6-astra",
-    "effort": "xhigh"
+  "schemaVersion": 1,
+  "probes": [
+    {
+      "stage": "A",
+      "mediaClass": "image-generate",
+      "rung": 1,
+      "timestamp": "2026-11-19T00:21:39.738Z",
+      "provenance": {
+        "format": "png",
+        "width": 1536,
+        "height": 1024,
+        "sanityVerdict": "pass"
+      },
+      "notes": "rung 1 confirmed via codex-direct"
+    }
+  ],
+  "rungByClass": {
+    "image-generate": 1,
+    "image-critique": "pending",
+    "audio-critique": "pending"
   },
-  "note": "Rung 1 confirmed: autonomous codex-direct file generation available for all art slots."
+  "modelTierPinned": true,
+  "exceptions": {
+    "placeholderSlots": [
+      "hero-desktop",
+      "hero-portrait",
+      "menu-rack",
+      "bezel-texture",
+      "briefing-outlook",
+      "briefing-flights",
+      "briefing-bank",
+      "failsafe-wall",
+      "countdown-insert",
+      "hero-return",
+      "ending-recovery",
+      "ending-containment",
+      "ending-failure"
+    ],
+    "missingVoiceClips": [
+      "vo-greeting-boot",
+      "vo-greeting-return",
+      "vo-idle-waiting",
+      "vo-idle-patience",
+      "vo-outlook-first-discrepancy",
+      "vo-flights-first-discrepancy",
+      "vo-bank-first-discrepancy",
+      "vo-deadline-30s",
+      "vo-deadline-10s",
+      "vo-deadline-final-phase",
+      "vo-reject-receipt-order",
+      "vo-reject-unrelated-source",
+      "vo-reject-derived-not-independent",
+      "vo-reject-wrong-root",
+      "vo-reject-incomplete",
+      "vo-recognition",
+      "vo-ending-recovery",
+      "vo-ending-containment",
+      "vo-ending-failure"
+    ],
+    "roomLoopPending": true
+  }
 }

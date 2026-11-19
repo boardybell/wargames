@@ -1,0 +1,88 @@
+{
+  "_comment": "One 2x generation target per ArtSlotId, derived from the split-02 reserved layout box (registry aspectRatio applied to the slot's rendered CSS box at the reference desktop viewport 1280px, portrait slots at the phone viewport 390px). Each entry records its derivation so the numbers are auditable. CI reads targetW/targetH + tolerancePx; the byte ceilings and AVIF-only rule live in the dimensions test, not here.",
+  "referenceViewports": {
+    "desktopCssWidth": 1280,
+    "phoneCssWidth": 390,
+    "scale": 2
+  },
+  "slots": {
+    "hero-desktop": {
+      "targetW": 2560,
+      "targetH": 1440,
+      "tolerancePx": 24,
+      "derivation": "16/9 full-bleed hero at the 1280px desktop box, 2x: 1280x720 CSS -> 2560x1440"
+    },
+    "hero-portrait": {
+      "targetW": 1080,
+      "targetH": 1920,
+      "tolerancePx": 24,
+      "derivation": "9/16 full-bleed hero at the 390px phone box, 2x of 540x960: 1080x1920"
+    },
+    "hero-return": {
+      "targetW": 2560,
+      "targetH": 1440,
+      "tolerancePx": 24,
+      "derivation": "16/9 returning-hero reuses the hero-desktop box: 1280x720 CSS, 2x -> 2560x1440"
+    },
+    "menu-rack": {
+      "targetW": 2048,
+      "targetH": 512,
+      "tolerancePx": 16,
+      "derivation": "4/1 menu backdrop rack spanning the 1024px content column: 1024x256 CSS, 2x -> 2048x512"
+    },
+    "bezel-texture": {
+      "targetW": 1024,
+      "targetH": 1024,
+      "tolerancePx": 16,
+      "derivation": "1/1 tiling bezel texture authored at 512x512 CSS source tile, 2x -> 1024x1024"
+    },
+    "countdown-insert": {
+      "targetW": 1536,
+      "targetH": 512,
+      "tolerancePx": 16,
+      "derivation": "3/1 countdown insert strip over the 768px cabinet readout band: 768x256 CSS, 2x -> 1536x512"
+    },
+    "briefing-outlook": {
+      "targetW": 1536,
+      "targetH": 1152,
+      "tolerancePx": 16,
+      "derivation": "4/3 briefing panel at the 768px briefing column: 768x576 CSS, 2x -> 1536x1152"
+    },
+    "briefing-flights": {
+      "targetW": 1536,
+      "targetH": 1152,
+      "tolerancePx": 16,
+      "derivation": "4/3 briefing panel at the 768px briefing column: 768x576 CSS, 2x -> 1536x1152"
+    },
+    "briefing-bank": {
+      "targetW": 1536,
+      "targetH": 1152,
+      "tolerancePx": 16,
+      "derivation": "4/3 briefing panel at the 768px briefing column: 768x576 CSS, 2x -> 1536x1152"
+    },
+    "failsafe-wall": {
+      "targetW": 2520,
+      "targetH": 1080,
+      "tolerancePx": 24,
+      "derivation": "21/9 ultrawide failsafe wall behind the terminal at the 1260px reveal box: 1260x540 CSS, 2x -> 2520x1080"
+    },
+    "ending-recovery": {
+      "targetW": 2048,
+      "targetH": 1152,
+      "tolerancePx": 24,
+      "derivation": "16/9 ending still at the 1024px debrief box: 1024x576 CSS, 2x -> 2048x1152"
+    },
+    "ending-containment": {
+      "targetW": 2048,
+      "targetH": 1152,
+      "tolerancePx": 24,
+      "derivation": "16/9 ending still at the 1024px debrief box: 1024x576 CSS, 2x -> 2048x1152"
+    },
+    "ending-failure": {
+      "targetW": 2048,
+      "targetH": 1152,
+      "tolerancePx": 24,
+      "derivation": "16/9 ending still at the 1024px debrief box: 1024x576 CSS, 2x -> 2048x1152"
+    }
+  }
+}
