@@ -6,6 +6,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { bootApp } from '../boot'
+import { gameFor } from './games/registry'
 import './game.css'
 
 // ---------- sound (created and resumed on the activation gesture) ----------
@@ -273,11 +274,32 @@ type Stage =
   | 'learn'
   | 'end'
   | 'campaign'
+  | 'game'
 
 const STAGES: readonly Stage[] = [
   'hero', 'boot', 'greeting', 'menu', 'chess', 'side', 'war', 'learn', 'end',
-  'campaign',
+  'campaign', 'game',
 ]
+
+/** Mounts the playable game chosen from LIST GAMES. Every entry except GLOBAL
+ *  THERMONUCLEAR WAR (which launches the campaign) lands here. */
+function GameHost({ id, onExit }: { id: string; onExit: () => void }) {
+  const entry = gameFor(id)
+  if (!entry) {
+    return (
+      <div className="wg-screen" data-testid="screen">
+        <div className="wg-out">
+          <div className="wg-dim">{id}: SIMULATION UNAVAILABLE.</div>
+          <button className="wg-opt" onClick={onExit} autoFocus>
+            BACK TO GAMES
+          </button>
+        </div>
+      </div>
+    )
+  }
+  const Game = entry.Component
+  return <Game onExit={onExit} />
+}
 
 /** GLOBAL THERMONUCLEAR WAR launches the real campaign: the engine-driven
  *  CRASH OUTLOOK, GROUND ALL FLIGHTS, FREEZE BANK ACCOUNTS, and the GLOBAL
@@ -306,6 +328,12 @@ export function WarGamesGame() {
   const [stage, setStage] = useState<Stage>(initialStage)
   const [pushing, setPushing] = useState(false)
   const [side, setSide] = useState<'US' | 'SU'>('US')
+  const [game, setGame] = useState<string | null>(null)
+
+  const pickGame = (g: string): void => {
+    setGame(g)
+    setStage('game')
+  }
 
   const activate = (): void => {
     startAudio()
@@ -341,12 +369,17 @@ export function WarGamesGame() {
 
       {stage === 'campaign' && <Campaign />}
 
-      {stage !== 'hero' && stage !== 'campaign' && (
+      {stage === 'game' && game && (
+        <GameHost id={game} onExit={() => setStage('menu')} />
+      )}
+
+      {stage !== 'hero' && stage !== 'campaign' && stage !== 'game' && (
         <Screen
           stage={stage}
           side={side}
           onStage={setStage}
           onSide={setSide}
+          onPickGame={pickGame}
         />
       )}
     </div>
@@ -358,11 +391,13 @@ function Screen({
   side,
   onStage,
   onSide,
+  onPickGame,
 }: {
   stage: Stage
   side: 'US' | 'SU'
   onStage: (s: Stage) => void
   onSide: (s: 'US' | 'SU') => void
+  onPickGame: (g: string) => void
 }) {
   useEffect(() => {
     if (stage === 'greeting') beep(140, 0.7, 'sine', 0.18)
@@ -382,7 +417,13 @@ function Screen({
           <Typer script={BOOT} cps={90} onDone={() => onStage('greeting')} />
         )}
         {stage === 'greeting' && <Greeting onDone={() => onStage('menu')} />}
-        {stage === 'menu' && <Menu onPick={(g) => onStage(g === 'GLOBAL THERMONUCLEAR WAR' ? 'campaign' : 'menu')} />}
+        {stage === 'menu' && (
+          <Menu
+            onPick={(g) =>
+              g === 'GLOBAL THERMONUCLEAR WAR' ? onStage('campaign') : onPickGame(g)
+            }
+          />
+        )}
         {stage === 'chess' && <Chess onLater={() => onStage('side')} onChess={() => onStage('end')} />}
         {stage === 'side' && (
           <SidePick
