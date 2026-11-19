@@ -4,7 +4,7 @@
 // this spec automates muted startup, the unlock, and the settings reflection.
 import { test, expect } from '@playwright/test'
 import { clearSaves } from './helpers/inject'
-import { activate, command } from './helpers/play'
+import { activate, command, gotoApp } from './helpers/play'
 
 const T0 = 1_700_000_000_000
 
@@ -17,7 +17,7 @@ test.describe('muted startup and the ENABLE SOUND gate', () => {
   test('fresh activation shows the diegetic ENABLE SOUND prompt and starts muted', async ({
     page,
   }) => {
-    await page.goto('./')
+    await gotoApp(page)
     await activate(page)
     // The prompt is diegetic terminal copy, shown once on a fresh campaign.
     await expect(page.getByTestId('sound-prompt')).toBeVisible()
@@ -38,7 +38,7 @@ test.describe('muted startup and the ENABLE SOUND gate', () => {
   test('answering the prompt enables audio, reflected in settings', async ({
     page,
   }) => {
-    await page.goto('./')
+    await gotoApp(page)
     await activate(page)
     await page.getByTestId('sound-yes').click()
     // Open settings and confirm the master sound switch now reads on.

@@ -222,6 +222,64 @@ export function startedFinale(startAt = 1_000_000): FinaleFixture {
   return { ctx, state: started.state, startedAt: finaleStart }
 }
 
+/** The reference settled-metrics snapshot a STAGED commit threads so the engine
+ *  recomputes the viability win gate itself. The three subsystem settled
+ *  outcomes plus the open-exceptions baseline, exactly what the shell builds. */
+export function commitSnapshotFrom(state: CampaignState): {
+  settled: CampaignState['settled']
+  openExceptionsBaseline: number
+} {
+  return {
+    settled: state.settled.filter(
+      (s) =>
+        s.missionId === 'alpha' ||
+        s.missionId === 'beta' ||
+        s.missionId === 'gamma',
+    ),
+    openExceptionsBaseline: state.openExceptionsBaseline,
+  }
+}
+
+/** Drive the real engine through the REAL corroboration path to a CERTIFIED
+ *  case: request the field report's source check, land the reply past its desk
+ *  delay, fill the five slots with the exercise root and the corroborated field
+ *  report, claim the event-time ordering, and VALIDATE. Returns the live state
+ *  with caseValid true, poised to commit the certified-win (STAGED) path. */
+export function certifiedFinale(startAt = 1_000_000): FinaleFixture {
+  const base = startedFinale(startAt)
+  const { ctx } = base
+  const at = base.startedAt
+  let current = dispatch(
+    ctx,
+    base.state,
+    { type: 'REQUEST_SOURCE_CHECK', recordId: FIELD_REPORT_ID },
+    at + 500,
+  ).state
+  // FR01 desk delay is 20s; land the reply well inside the window.
+  current = advanceCampaign(ctx, current, at + 25_000).state
+  const fills: Array<[string, string]> = [
+    ['outlook', 'C17'],
+    ['flights', 'F06'],
+    ['bank', 'B04'],
+    ['root', ROOT_RECORD_ID],
+    ['observation', FIELD_REPORT_ID],
+  ]
+  let now = at + 26_000
+  for (const [slot, recordId] of fills) {
+    current = act(ctx, current, { kind: 'SELECT', slot, recordId }, now).state
+    now += 1_000
+  }
+  current = act(ctx, current, { kind: 'REORDER', ordering: ['C17', 'F06', 'B04'] }, now).state
+  now += 1_000
+  current = act(
+    ctx,
+    current,
+    { kind: 'VALIDATE', caseFile: caseFileFrom(current) },
+    now,
+  ).state
+  return { ctx, state: current, startedAt: now }
+}
+
 /** Drive the real engine to the finale START with a custom FR01 desk delay and
  *  return the raw START dispatch result, so a test can assert whether
  *  construction (module.init) accepted or rejected the authored bound. */

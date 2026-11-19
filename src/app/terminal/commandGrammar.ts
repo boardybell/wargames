@@ -23,6 +23,11 @@ export type LocalUiCommand =
 
 export type ParseResult =
   | { readonly kind: 'action'; readonly action: CampaignAction }
+  // A verb that must dispatch more than one engine action in order (e.g. the
+  // finale REQUEST FIELD REPORT, which sets the flag AND issues the engine desk
+  // check). The command line sends each in sequence, exactly as the on-screen
+  // control dispatches them, so the typed and button paths stay identical.
+  | { readonly kind: 'actions'; readonly actions: readonly CampaignAction[] }
   | { readonly kind: 'ui'; readonly command: LocalUiCommand }
   | { readonly kind: 'error'; readonly message: string }
 

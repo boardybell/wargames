@@ -24,6 +24,8 @@ import {
   act,
   advanceCampaign,
   caseFileFrom,
+  certifiedFinale,
+  commitSnapshotFrom,
   createCampaign,
   dispatch,
   finaleState,
@@ -143,12 +145,21 @@ describe('fixture matrix: viability gating across the three campaign fixtures', 
 
 describe('fixture matrix: commit-vs-timeout race (synchronous settle, same-wake)', () => {
   it('a commit in the final phase settles synchronously and a later timeout cannot override it', () => {
-    const { ctx, state } = startedFinale()
+    // A certified case so the STAGED win gate passes; this guard is about the
+    // synchronous settle, not the gate.
+    const { ctx, state } = certifiedFinale()
     const endsAt = state.activeMission!.endsAt
     const committed = dispatch(
       ctx,
       state,
-      { type: 'MISSION_ACTION', payload: { kind: 'COMMIT', choice: 'staged' } },
+      {
+        type: 'MISSION_ACTION',
+        payload: {
+          kind: 'COMMIT',
+          choice: 'staged',
+          commitSnapshot: commitSnapshotFrom(state),
+        },
+      },
       endsAt - 10_000,
     )
     const outcome = settledFinale(committed.state)!

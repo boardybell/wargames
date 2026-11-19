@@ -16,7 +16,7 @@ import type { StagedComputation } from '@engine/missions/finale/projections'
 import { Dialog } from '../../screens/Dialog'
 import { TerminalText } from '../../terminal/TerminalText'
 import { GlossaryTerm } from '../../a11y/GlossaryTerm'
-import { makeCommitAction } from './verbs'
+import { makeCommitAction, type CommitSnapshotRef } from './verbs'
 
 export interface DecisionViewProps {
   readonly caseValid: boolean
@@ -26,6 +26,9 @@ export interface DecisionViewProps {
   /** The REPEAT projection, quoted verbatim in its confirmation. */
   readonly repeatProjection: BranchProjection | null
   readonly onAction: (action: CampaignAction) => void
+  /** The reference-only settled-metrics snapshot a STAGED commit carries so the
+   *  ENGINE recomputes the viability win gate at commit. */
+  readonly commitSnapshot: CommitSnapshotRef
   /** A typed COMMIT routed here opens the SAME confirmation gate the button
    *  raises. Non-null requests the dialog for that choice; onRequestHandled
    *  clears it once the dialog has been opened (so a dismiss then re-type works). */
@@ -44,6 +47,7 @@ export function DecisionView({
   staged,
   repeatProjection,
   onAction,
+  commitSnapshot,
   requestedCommit = null,
   onRequestHandled,
 }: DecisionViewProps) {
@@ -69,7 +73,7 @@ export function DecisionView({
     if (confirming === null) return
     const choice = confirming
     setConfirming(null)
-    onAction(makeCommitAction(choice))
+    onAction(makeCommitAction(choice, commitSnapshot))
   }
 
   const confirmBody = (): string => {

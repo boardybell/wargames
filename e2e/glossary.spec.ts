@@ -4,7 +4,7 @@
 // drives one that is present once a mission is active.
 import { test, expect } from '@playwright/test'
 import { clearSaves } from './helpers/inject'
-import { activate, startMission } from './helpers/play'
+import { activate, gotoApp, startMission } from './helpers/play'
 
 const T0 = 1_700_000_000_000
 
@@ -12,7 +12,7 @@ test.describe('glossary definitions open on hover and focus, close on Escape', (
   test.beforeEach(async ({ page }) => {
     await page.clock.install({ time: T0 })
     await clearSaves(page)
-    await page.goto('./')
+    await gotoApp(page)
     await activate(page)
     // The bank status block renders visible glossary terms (CASH, CONFIDENCE,
     // FLOOR) in its always-present readout.

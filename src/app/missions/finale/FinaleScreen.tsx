@@ -129,6 +129,12 @@ export function FinaleScreen({ missionId }: MissionScreenProps) {
   const stateRef = useRef(state)
   stateRef.current = state
 
+  // The designated field-report record id the REQUEST FIELD REPORT verb issues
+  // the engine desk check against. Ref-backed so the once-on-mount verb
+  // registration always reads the live payload.
+  const fieldReportIdRef = useRef<string>(payload?.fieldReportId ?? '')
+  fieldReportIdRef.current = payload?.fieldReportId ?? ''
+
   const caseFileRef = (): FinaleCaseFileRef => caseFileRefFrom(stateRef.current)
   const slotsRef = useRef<FinaleState['slots'] | null>(substate?.slots ?? null)
   slotsRef.current = substate?.slots ?? null
@@ -157,6 +163,7 @@ export function FinaleScreen({ missionId }: MissionScreenProps) {
       ordering: () => orderingRef.current(),
       recordForSlot: (slot: FinaleSlot) =>
         (slotsRef.current?.[slot] ?? null) as string | null,
+      fieldReportId: () => fieldReportIdRef.current,
     })
     const unregisterUi = registerScreenUiHandler(FINALE_SCREEN_ID, (detail) => {
       const ui = asFinaleUiCommand(detail)
@@ -422,6 +429,10 @@ export function FinaleScreen({ missionId }: MissionScreenProps) {
             staged={comparison?.staged ?? null}
             repeatProjection={comparison?.repeat ?? null}
             onAction={onAction}
+            commitSnapshot={{
+              settled: activeSnapshot.settled,
+              openExceptionsBaseline: activeSnapshot.openExceptionsBaseline,
+            }}
             requestedCommit={requestedCommit}
             onRequestHandled={() => setRequestedCommit(null)}
           />

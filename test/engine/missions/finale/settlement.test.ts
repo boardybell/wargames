@@ -9,6 +9,8 @@ import {
   act,
   advanceCampaign,
   caseFileFrom,
+  certifiedFinale,
+  commitSnapshotFrom,
   dispatch,
   finaleState,
   startedFinale,
@@ -20,10 +22,17 @@ function settledFinale(state: CampaignState) {
 
 describe('finale settlement: committed transition', () => {
   it('committed moves null -> staged | hold | repeat and never changes', () => {
+    // STAGED is the certified-win path: it needs a certified case and the
+    // viability snapshot. HOLD and REPEAT are commit-anytime.
     for (const choice of ['staged', 'hold', 'repeat'] as const) {
-      const { ctx, state, startedAt } = startedFinale()
+      const { ctx, state, startedAt } =
+        choice === 'staged' ? certifiedFinale() : startedFinale()
       expect(finaleState(state).committed).toBeNull()
-      const committed = act(ctx, state, { kind: 'COMMIT', choice }, startedAt + 1_000)
+      const payload =
+        choice === 'staged'
+          ? { kind: 'COMMIT', choice, commitSnapshot: commitSnapshotFrom(state) }
+          : { kind: 'COMMIT', choice }
+      const committed = act(ctx, state, payload, startedAt + 1_000)
       const outcome = settledFinale(committed.state)
       expect(outcome).not.toBeNull()
       // The finale settled; the substate committed value is frozen in the
@@ -33,8 +42,13 @@ describe('finale settlement: committed transition', () => {
   })
 
   it('a duplicate commit after settlement is rejected by the engine no-active-mission guard', () => {
-    const { ctx, state, startedAt } = startedFinale()
-    const first = act(ctx, state, { kind: 'COMMIT', choice: 'staged' }, startedAt + 1_000)
+    const { ctx, state, startedAt } = certifiedFinale()
+    const first = act(
+      ctx,
+      state,
+      { kind: 'COMMIT', choice: 'staged', commitSnapshot: commitSnapshotFrom(state) },
+      startedAt + 1_000,
+    )
     const firstOutcome = settledFinale(first.state)!
     // Once the finale has settled it is no longer the active mission, so a
     // second COMMIT dispatch never reaches the module reducer: the engine
@@ -81,8 +95,13 @@ describe('finale settlement: committed transition', () => {
 describe('finale settlement: cause mapping', () => {
   it('staged and hold commits settle completed', () => {
     for (const choice of ['staged', 'hold'] as const) {
-      const { ctx, state, startedAt } = startedFinale()
-      const committed = act(ctx, state, { kind: 'COMMIT', choice }, startedAt + 1_000)
+      const { ctx, state, startedAt } =
+        choice === 'staged' ? certifiedFinale() : startedFinale()
+      const payload =
+        choice === 'staged'
+          ? { kind: 'COMMIT', choice, commitSnapshot: commitSnapshotFrom(state) }
+          : { kind: 'COMMIT', choice }
+      const committed = act(ctx, state, payload, startedAt + 1_000)
       expect(settledFinale(committed.state)!.cause).toBe('completed')
     }
   })
@@ -133,7 +152,9 @@ describe('finale settlement: exactly once', () => {
 
 describe('finale settlement: commit-vs-timeout race guard', () => {
   it('a commit during the final phase settles completed, finaleFinalPhase drains in the same wake', () => {
-    const { ctx, state } = startedFinale()
+    // A certified case so the STAGED win gate passes; the race guard is about
+    // settlement timing, not the gate.
+    const { ctx, state } = certifiedFinale()
     const endsAt = state.activeMission!.endsAt
     // finaleFinalPhase fires 20s before endsAt. Dispatch COMMIT at a now in the
     // final phase (after the finaleFinalPhase scheduledAt, before endsAt) so
@@ -144,7 +165,14 @@ describe('finale settlement: commit-vs-timeout race guard', () => {
     const result = dispatch(
       ctx,
       state,
-      { type: 'MISSION_ACTION', payload: { kind: 'COMMIT', choice: 'staged' } },
+      {
+        type: 'MISSION_ACTION',
+        payload: {
+          kind: 'COMMIT',
+          choice: 'staged',
+          commitSnapshot: commitSnapshotFrom(state),
+        },
+      },
       now,
     )
     // The final-phase beat emitted in this wake AND the commit settled completed.
@@ -158,13 +186,20 @@ describe('finale settlement: commit-vs-timeout race guard', () => {
   })
 
   it('once committed, a timeout arriving in a later wake cannot override the committed recovery', () => {
-    const { ctx, state } = startedFinale()
+    const { ctx, state } = certifiedFinale()
     const endsAt = state.activeMission!.endsAt
-    // Commit in the final phase, before endsAt.
+    // Commit the certified STAGED win in the final phase, before endsAt.
     const committed = dispatch(
       ctx,
       state,
-      { type: 'MISSION_ACTION', payload: { kind: 'COMMIT', choice: 'staged' } },
+      {
+        type: 'MISSION_ACTION',
+        payload: {
+          kind: 'COMMIT',
+          choice: 'staged',
+          commitSnapshot: commitSnapshotFrom(state),
+        },
+      },
       endsAt - 10_000,
     )
     expect(settledFinale(committed.state)!.cause).toBe('completed')

@@ -34,8 +34,11 @@ import {
   validateFinaleContent,
   fieldReportLegal,
 } from './caseBuilder'
-import { resolveEnding } from './endings'
+import { resolveEnding, stagedEligible } from './endings'
+import { computeFinaleViability } from './projections'
+import type { FinaleSnapshot } from './projections'
 import { finaleSaveSchema } from './types'
+import type { SettledOutcome } from '../../campaign/types'
 import type {
   CaseFileCheck,
   CommitChoice,
@@ -125,10 +128,41 @@ interface FinaleAction {
     readonly sourceChecks?: readonly CaseFileCheck[]
     readonly inspectedRecords?: readonly string[]
   }
+  /** The reference-only settled-metrics snapshot a STAGED commit carries so the
+   *  ENGINE (not the shell) recomputes the viability predicate at commit and
+   *  gates the certified win. Integer metrics only; the module recomputes
+   *  viability itself so no input path can hand it a forged eligibility bit. */
+  readonly commitSnapshot?: {
+    readonly settled?: readonly SettledOutcome[]
+    readonly openExceptionsBaseline?: number
+  }
 }
 
 function isCommitChoice(value: unknown): value is CommitChoice {
   return value === 'staged' || value === 'hold' || value === 'repeat'
+}
+
+/** The STAGED-commit win gate, owned by the engine so no input path can bypass
+ *  it: a STAGED RECOVERY commit settles the recovery win only when the case
+ *  certified AND the viability predicate stagedEligible uses passes. The
+ *  viability is recomputed here from the reference settled metrics the action
+ *  carries, never trusted as a boolean. HOLD and REPEAT are commit-anytime and
+ *  never consult this. */
+function stagedCommitEligible(
+  state: FinaleState,
+  action: FinaleAction,
+): boolean {
+  const snap = action.commitSnapshot
+  const snapshot: FinaleSnapshot = {
+    settled: snap?.settled ?? [],
+    openExceptionsBaseline: snap?.openExceptionsBaseline ?? 0,
+    caseState: {
+      caseValid: state.caseValid,
+      provedSlots: [],
+      fieldReportCorroborated: false,
+    },
+  }
+  return stagedEligible(state.caseValid, computeFinaleViability(snapshot))
 }
 
 /** The persisted proved bit for one slot: 1 iff the case certified AND that
@@ -218,9 +252,18 @@ export function makeFinaleMission(
   }
 
   /** COMMIT: set `committed` once; it never changes thereafter. Settlement is
-   *  synchronous via terminal() polling the committed field in the same reduce. */
-  function commit(state: FinaleState, choice: CommitChoice): FinaleState {
+   *  synchronous via terminal() polling the committed field in the same reduce.
+   *  A STAGED RECOVERY commit is the certified-win path: it is refused (a no-op,
+   *  leaving committed null) unless the engine win gate passes, so an ineligible
+   *  case can never settle the recovery ending by any input path. HOLD and
+   *  REPEAT stay commit-anytime. */
+  function commit(
+    state: FinaleState,
+    choice: CommitChoice,
+    action: FinaleAction,
+  ): FinaleState {
     if (state.committed !== null) return state
+    if (choice === 'staged' && !stagedCommitEligible(state, action)) return state
     return { ...state, committed: choice }
   }
 
@@ -254,7 +297,7 @@ export function makeFinaleMission(
         return { ...base, comparisonsRun: base.comparisonsRun + 1 }
       case 'COMMIT': {
         if (!isCommitChoice(action.choice)) return base
-        return commit(base, action.choice)
+        return commit(base, action.choice, action)
       }
       default:
         return base
@@ -304,7 +347,7 @@ export function makeFinaleMission(
       }
     },
 
-    validate(_state, payloadIn) {
+    validate(state, payloadIn) {
       const action = payloadIn as FinaleAction | null
       if (!action || typeof action.kind !== 'string') {
         return { valid: false, reason: 'MALFORMED ACTION' }
@@ -338,6 +381,17 @@ export function makeFinaleMission(
         case 'COMMIT': {
           if (!isCommitChoice(action.choice)) {
             return { valid: false, reason: 'NO COMMIT CHOICE' }
+          }
+          // The engine win gate for the certified-win path: a STAGED RECOVERY
+          // commit on an ineligible case (case not certified, or viability
+          // fails) is a structured refusal, so no input path, typed or button,
+          // can settle the recovery ending on an uncertified case. HOLD and
+          // REPEAT are commit-anytime and skip the gate.
+          if (
+            action.choice === 'staged' &&
+            !stagedCommitEligible(state, action)
+          ) {
+            return { valid: false, reason: 'CASE NOT CERTIFIED FOR STAGED RECOVERY' }
           }
           return { valid: true }
         }

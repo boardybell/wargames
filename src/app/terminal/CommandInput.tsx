@@ -32,6 +32,11 @@ export function CommandInput({ activeScreen, onUiCommand }: CommandInputProps) {
       appendLine(result.message)
     } else if (result.kind === 'ui') {
       onUiCommand(result.command)
+    } else if (result.kind === 'actions') {
+      for (const action of result.actions) {
+        const sent = send(action)
+        if (sent.rejected) appendLine(`INVALID: ${sent.reason}`)
+      }
     } else {
       const sent = send(result.action)
       if (sent.rejected) appendLine(`INVALID: ${sent.reason}`)

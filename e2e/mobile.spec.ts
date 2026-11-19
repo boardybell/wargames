@@ -4,7 +4,7 @@
 // chromium-mobile project.
 import { test, expect } from '@playwright/test'
 import { clearSaves } from './helpers/inject'
-import { activate, startMission } from './helpers/play'
+import { activate, gotoApp, startMission } from './helpers/play'
 
 const T0 = 1_700_000_000_000
 
@@ -12,7 +12,7 @@ test.describe('compact mobile layout plays by tap', () => {
   test.beforeEach(async ({ page }) => {
     await page.clock.install({ time: T0 })
     await clearSaves(page)
-    await page.goto('./')
+    await gotoApp(page)
   })
 
   test('hero activates by tap and the menu rows are tappable', async ({ page }) => {

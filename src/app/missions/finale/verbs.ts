@@ -8,7 +8,7 @@
 // parsing and the live case-file bundle the shell threads through. Diction is
 // uppercase terminal; no em-dashes. The engine validator is the only judge of
 // legality; these builders only shape actions.
-import type { CampaignAction } from '@engine'
+import type { CampaignAction, SettledOutcome } from '@engine'
 import type {
   CaseFileCheck,
   CommitChoice,
@@ -141,8 +141,32 @@ export function makeRunComparisonAction(): MissionAction {
   return { type: 'MISSION_ACTION', payload: { kind: 'RUN_COMPARISON' } }
 }
 
-export function makeCommitAction(choice: CommitChoice): MissionAction {
-  return { type: 'MISSION_ACTION', payload: { kind: 'COMMIT', choice } }
+/** The reference-only settled-metrics snapshot a STAGED commit carries so the
+ *  ENGINE recomputes the viability win gate at commit. Integer metrics only. */
+export interface CommitSnapshotRef {
+  readonly settled: readonly SettledOutcome[]
+  readonly openExceptionsBaseline: number
+}
+
+export function makeCommitAction(
+  choice: CommitChoice,
+  snapshot?: CommitSnapshotRef,
+): MissionAction {
+  // A STAGED commit carries the settled snapshot so the engine recomputes the
+  // viability gate itself; HOLD and REPEAT carry nothing and are commit-anytime.
+  const commitSnapshot =
+    choice === 'staged' && snapshot
+      ? {
+          settled: snapshot.settled.map((s) => ({ ...s })),
+          openExceptionsBaseline: snapshot.openExceptionsBaseline,
+        }
+      : undefined
+  return {
+    type: 'MISSION_ACTION',
+    payload: commitSnapshot
+      ? { kind: 'COMMIT', choice, commitSnapshot }
+      : { kind: 'COMMIT', choice },
+  }
 }
 
 function err(message: string): ParseResult {
@@ -151,6 +175,10 @@ function err(message: string): ParseResult {
 
 function action(a: CampaignAction): ParseResult {
   return { kind: 'action', action: a }
+}
+
+function actions(a: readonly CampaignAction[]): ParseResult {
+  return { kind: 'actions', actions: a }
 }
 
 /** Compute the reordering that moves recordId one place up or down within the
@@ -182,6 +210,10 @@ export interface FinaleVerbContext {
   /** The record currently targeted by a subsystem slot, for MOVE UP/DOWN with a
    *  slot argument. Maps a subsystem slot name to its filled record id, or null. */
   readonly recordForSlot: (slot: FinaleSlot) => string | null
+  /** The designated field-report record id REQUEST FIELD REPORT issues the
+   *  engine desk check against, so the typed verb and the on-screen button both
+   *  dispatch the real REQUEST_SOURCE_CHECK that corroborates the observation. */
+  readonly fieldReportId: () => string
 }
 
 /** The verbs that dispatch engine actions, plus the view commands. */
@@ -238,7 +270,14 @@ export function buildFinaleVerbs(
         if (tokens[0] !== 'FIELD' || tokens[1] !== 'REPORT') {
           return err('UNRECOGNIZED COMMAND')
         }
-        return action(makeRequestFieldReportAction(ctx.caseFile()))
+        // Two ordered dispatches, the SAME pair the on-screen button raises:
+        // the mission flag (bounded-wait legality lives in the engine), then the
+        // engine-owned desk check against the designated record whose reply folds
+        // into campaign.sourceChecks and corroborates the observation slot.
+        return actions([
+          makeRequestFieldReportAction(ctx.caseFile()),
+          makeFieldReportSourceCheckAction(ctx.fieldReportId()),
+        ])
       },
     },
     {

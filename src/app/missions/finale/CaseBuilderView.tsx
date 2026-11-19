@@ -24,6 +24,7 @@ import { TerminalText } from '../../terminal/TerminalText'
 import { GlossaryTerm } from '../../a11y/GlossaryTerm'
 import {
   makeClearAction,
+  makeFieldReportSourceCheckAction,
   makeReorderAction,
   makeRequestFieldReportAction,
   makeSelectAction,
@@ -200,7 +201,15 @@ export function CaseBuilderView({
         <button
           type="button"
           data-testid="finale-request-field-report"
-          onClick={() => onAction(makeRequestFieldReportAction(caseFileRef))}
+          onClick={() => {
+            // The SAME ordered pair the typed REQUEST FIELD REPORT verb raises:
+            // set the mission flag (the engine owns the bounded-wait legality),
+            // then issue the engine-owned desk check against the designated
+            // record so its reply folds into campaign.sourceChecks and
+            // corroborates the observation slot.
+            onAction(makeRequestFieldReportAction(caseFileRef))
+            onAction(makeFieldReportSourceCheckAction(caseFile.fieldReportId))
+          }}
         >
           REQUEST FIELD REPORT
         </button>

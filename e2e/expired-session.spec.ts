@@ -4,7 +4,7 @@
 // (settlement permanence through the browser).
 import { test, expect } from '@playwright/test'
 import { clearSaves } from './helpers/inject'
-import { activate, startMission } from './helpers/play'
+import { activate, gotoApp, startMission } from './helpers/play'
 
 const T0 = 1_700_000_000_000
 
@@ -17,7 +17,7 @@ test.describe('an expired deadline settles once on arrival', () => {
   test('arrival settles the mission to a single debrief, permanent across reload', async ({
     page,
   }) => {
-    await page.goto('./')
+    await gotoApp(page)
     await activate(page)
     await startMission(page, 'outlook')
     // Record the started mission into the save (START flushes immediately).

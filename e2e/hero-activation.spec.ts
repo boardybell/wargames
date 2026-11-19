@@ -3,6 +3,7 @@
 // row. Mouse, Enter, and Space all activate; the mobile project adds tap.
 import { test, expect } from '@playwright/test'
 import { clearSaves } from './helpers/inject'
+import { gotoApp } from './helpers/play'
 
 test.beforeEach(async ({ page }) => {
   await clearSaves(page)
@@ -11,7 +12,7 @@ test.beforeEach(async ({ page }) => {
 test('fresh load shows the hero with the greeting and an activate affordance', async ({
   page,
 }) => {
-  await page.goto('./')
+  await gotoApp(page)
   const hero = page.getByTestId('hero-button')
   await expect(hero).toBeVisible()
   await expect(page.getByTestId('hero-greeting')).toContainText(
@@ -22,7 +23,7 @@ test('fresh load shows the hero with the greeting and an activate affordance', a
 test('activation reveals SHALL WE PLAY A GAME with exactly three rows, no fourth', async ({
   page,
 }) => {
-  await page.goto('./')
+  await gotoApp(page)
   await page.getByTestId('hero-button').click()
   const menu = page.getByTestId('menu-screen')
   await expect(menu).toBeVisible()
@@ -41,7 +42,7 @@ test('activation reveals SHALL WE PLAY A GAME with exactly three rows, no fourth
 })
 
 test('Enter activates the terminal (keyboard entry)', async ({ page }) => {
-  await page.goto('./')
+  await gotoApp(page)
   const hero = page.getByTestId('hero-button')
   await hero.focus()
   await page.keyboard.press('Enter')
@@ -49,7 +50,7 @@ test('Enter activates the terminal (keyboard entry)', async ({ page }) => {
 })
 
 test('Space activates the terminal (keyboard entry)', async ({ page }) => {
-  await page.goto('./')
+  await gotoApp(page)
   const hero = page.getByTestId('hero-button')
   await hero.focus()
   await page.keyboard.press('Space')

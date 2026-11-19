@@ -8,7 +8,7 @@
 // /<repo>/ so this assertion matches the deployed artifact.
 import { test, expect } from '@playwright/test'
 import { clearSaves } from './helpers/inject'
-import { activate, startMission } from './helpers/play'
+import { activate, gotoApp, startMission } from './helpers/play'
 
 const T0 = 1_700_000_000_000
 const ASSET_RE = /\.(js|mjs|css|png|jpe?g|webp|svg|woff2?|ttf|otf|mp3|ogg|wav|m4a)(\?|$)/i
@@ -30,7 +30,7 @@ test('every same-origin asset request stays under /wargames/', async ({
     }
   })
 
-  await page.goto('./')
+  await gotoApp(page)
   await activate(page)
   await startMission(page, 'outlook')
   // Let any lazy mission assets request.

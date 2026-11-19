@@ -3,6 +3,7 @@
 // budget, and no long-running transform animation exists.
 import { test, expect } from '@playwright/test'
 import { clearSaves } from './helpers/inject'
+import { gotoApp } from './helpers/play'
 
 const T0 = 1_700_000_000_000
 
@@ -17,7 +18,7 @@ test.describe('reduced motion replaces the push-in with an immediate reveal', ()
   test('activation reveals the menu immediately with no running transform animation', async ({
     page,
   }) => {
-    await page.goto('./')
+    await gotoApp(page)
     const start = Date.now()
     await page.getByTestId('hero-button').click()
     // The menu is interactive well under the 700ms push-in budget.

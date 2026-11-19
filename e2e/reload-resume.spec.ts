@@ -5,7 +5,7 @@
 // settled state.
 import { test, expect } from '@playwright/test'
 import { clearSaves } from './helpers/inject'
-import { activate, command, startMission } from './helpers/play'
+import { activate, command, gotoApp, startMission } from './helpers/play'
 
 const T0 = 1_700_000_000_000
 
@@ -28,7 +28,7 @@ test.describe('reload mid-mission restores the live mission', () => {
   test('a mid-mission reload reopens the mission screen with a smaller, still-counting timer', async ({
     page,
   }) => {
-    await page.goto('./')
+    await gotoApp(page)
     await activate(page)
     await startMission(page, 'outlook')
     // Let a chunk of the deadline elapse, then nudge the engine so the save

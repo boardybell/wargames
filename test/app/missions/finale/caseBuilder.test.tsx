@@ -20,6 +20,7 @@ import {
   makeReorderAction,
   makeValidateAction,
   makeRequestFieldReportAction,
+  makeFieldReportSourceCheckAction,
   makeRunComparisonAction,
   makeCommitAction,
 } from '@app/missions/finale/verbs'
@@ -106,13 +107,21 @@ describe('CaseBuilderView: slot interaction identity (keyboard and tap)', () => 
     }
     expect(parse('SELECT C17 outlook')).toStrictEqual(makeSelectAction('outlook', 'C17'))
     expect(parse('RUN COMPARISON')).toStrictEqual(makeRunComparisonAction())
-    // VALIDATE / REQUEST carry the live case-file bundle; the shared builder
-    // over the same case-file ref is deep-equal to what the button sends.
+    // VALIDATE carries the live case-file bundle; the shared builder over the
+    // same case-file ref is deep-equal to what the button sends.
     const ref = caseFileRefFrom(getState())
     expect(parse('VALIDATE')).toStrictEqual(makeValidateAction(ref))
-    expect(parse('REQUEST FIELD REPORT')).toStrictEqual(
-      makeRequestFieldReportAction(ref),
-    )
+    // REQUEST FIELD REPORT dispatches the SAME ordered pair the on-screen button
+    // raises: set the mission flag, then issue the engine-owned desk check
+    // against the designated record. Both paths produce the identical actions.
+    const requestResult = parseCommand('REQUEST FIELD REPORT', FINALE_SCREEN_ID)
+    expect(requestResult.kind).toBe('actions')
+    if (requestResult.kind === 'actions') {
+      expect(requestResult.actions).toStrictEqual([
+        makeRequestFieldReportAction(ref),
+        makeFieldReportSourceCheckAction(FIELD_REPORT_ID),
+      ])
+    }
   })
 
   it('COMMIT parses to the confirmation-gate ui command, not a direct action, so the typed irreversible path meets the same confirm dialog the button raises', () => {
@@ -308,12 +317,11 @@ describe('CaseBuilderView: REQUEST FIELD REPORT legality', () => {
   it('appears only while legal, then retires once the reply corroborates', () => {
     // Legal at start: no corroborated candidate exists yet.
     expect(screen.getByTestId('finale-request-field-report')).toBeInTheDocument()
-    // Request it (finale flag) then dispatch the desk check and resolve it.
+    // One click does the whole job: the button sets the finale flag AND issues
+    // the engine-owned desk check against the designated record (the fix for the
+    // unreachable-corroboration bug). No separate dispatch is needed.
     fireEvent.click(screen.getByTestId('finale-request-field-report'))
     expect(finaleSub().fieldReportRequested).toBe(true)
-    act(() => {
-      send({ type: 'REQUEST_SOURCE_CHECK', recordId: FIELD_REPORT_ID })
-    })
     // Pending status renders while still legal (reply not yet in).
     expect(screen.getByTestId('finale-field-report-pending')).toBeInTheDocument()
     // Advance so the reply lands; the field report now corroborates and the

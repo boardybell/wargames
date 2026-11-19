@@ -15,7 +15,7 @@
 // mission control, which is the keyboard-only guarantee this spec also proves.
 import { test, expect } from '@playwright/test'
 import { clearSaves } from './helpers/inject'
-import { activate, command, startMission } from './helpers/play'
+import { activate, command, gotoApp, startMission } from './helpers/play'
 import { unlockFinale } from './helpers/campaign'
 
 const T0 = 1_700_000_000_000
@@ -30,7 +30,7 @@ test.describe('full campaign: three missions to passing debriefs, then the final
     page,
   }) => {
     test.setTimeout(120_000)
-    await page.goto('./')
+    await gotoApp(page)
     await activate(page)
 
     // Fourth row is hidden before the campaign starts.
@@ -49,29 +49,32 @@ test.describe('full campaign: three missions to passing debriefs, then the final
     if (await startBtn.count()) await startBtn.click()
     await expect(page.getByTestId('finale-screen')).toBeVisible()
 
-    // Corroborate the field report (R21, the seed-one OBSERVED field report), then
-    // build the event-time-ordered case (C17, F06, B04) with the root and the
-    // corroborated observation.
+    // Corroborate the field report (R21, the seed-one OBSERVED field report)
+    // through the shipped control, then build the event-time-ordered case (C17,
+    // F06, B04) with the root and the corroborated observation. REQUEST FIELD
+    // REPORT itself issues the engine desk check against R21 now, so no separate
+    // CHECK SOURCE is needed.
     await command(page, 'REQUEST FIELD REPORT')
-    await command(page, 'CHECK SOURCE R21')
     await page.clock.setFixedTime(finaleStart + 60_000)
-    await command(page, 'TRACE C17')
     await command(page, 'SELECT C17 outlook')
     await command(page, 'SELECT F06 flights')
     await command(page, 'SELECT B04 bank')
     await command(page, 'SELECT C17 root')
     await command(page, 'SELECT R21 observation')
+    // Claim the event-time ordering through the reorder controls (already in
+    // order; move down then up records the explicit ordering the validator wants).
+    await command(page, 'MOVE F06 DOWN')
+    await command(page, 'MOVE F06 UP')
     await command(page, 'VALIDATE')
     await command(page, 'RUN COMPARISON')
     await command(page, 'COMMIT STAGED')
     const confirm = page.getByTestId('finale-confirm-yes')
     if (await confirm.count()) await confirm.click()
 
-    // The STAGED RECOVERY ending renders through the real router. (Whether the
-    // win GATE correctly requires a certified case is asserted separately in
-    // finale-validation.spec.ts, which surfaces the corroboration and commit-gate
-    // integration bugs; this spec proves the three missions play to real
-    // settlements and the finale reaches an ending screen through the router.)
+    // The STAGED RECOVERY ending renders through the real router on a genuinely
+    // certified case: the win gate (engine-enforced caseValid AND viability) now
+    // passes because the field report corroborated the observation and the case
+    // validated, proving the whole intended win path end to end in the browser.
     await expect(page.getByTestId('finale-ending')).toHaveAttribute(
       'data-ending-id',
       'recovery',

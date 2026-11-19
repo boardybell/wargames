@@ -6,6 +6,15 @@
 // mission to its real debrief.
 import { expect, type Page } from '@playwright/test'
 
+/** Navigate to the engine-driven campaign. A bare load boots the WarGamesGame
+ *  tribute front end; the deep engine campaign (bootApp) is reached with the
+ *  ?engine query, which main.tsx honors. Every spec enters through here so the
+ *  matrix drives the engine app the plan targets, and page.reload preserves the
+ *  query for resume cases. */
+export async function gotoApp(page: Page): Promise<void> {
+  await page.goto('./?engine')
+}
+
 /** Activate the hero (click) and wait for the SHALL WE PLAY A GAME menu. Uses the
  *  committed testids, never text guesses. */
 export async function activate(page: Page): Promise<void> {
