@@ -4,9 +4,11 @@ Live board. Open it in an editor and it updates as each piece lands. The
 authoritative record is `git log --oneline` and the test count; this is the
 human-readable view.
 
-Last updated: missions 1-3 all DONE and committed (CRASH OUTLOOK, GROUND ALL
-FLIGHTS, FREEZE BANK ACCOUNTS). Starting split 06, the global-failsafe finale
-and campaign-level scoring (where WOPR's tally-vs-reality divergence pays off).
+Last updated: the whole engine-driven game logic is DONE and committed -
+engine, shell, all three missions, and the finale (with the WOPR
+tally-vs-reality divergence paying off at the campaign ending). 1406 tests
+passing. Remaining: the art/audio media pass, then deploy (which mounts this
+engine-driven game in place of the standalone page).
 
 ## The two tracks
 
@@ -24,9 +26,9 @@ and campaign-level scoring (where WOPR's tally-vs-reality divergence pays off).
 | 03 crash-outlook (mission 1) | inbox-triage puzzle | DONE |
 | 04 ground-all-flights (mission 2) | air-traffic routing under a storm | DONE |
 | 05 freeze-bank-accounts (mission 3) | bank-run ledger | DONE |
-| 06 global-failsafe (finale) | WOPR takeover + campaign-level scoring | starting |
-| 07 art-audio-pipeline (media) | not started |
-| 08 deploy-and-review | not started |
+| 06 global-failsafe (finale) | WOPR takeover + campaign-level scoring | DONE |
+| 07 art-audio-pipeline (media) | DEC-raster art + audio filling the slots | starting |
+| 08 deploy-and-review | mount the engine shell at the app root, ship it | not started |
 
 ## Finale split (06) sections (current)
 
@@ -36,7 +38,7 @@ and campaign-level scoring (where WOPR's tally-vs-reality divergence pays off).
 | 01 finale-module | case builder, field-report bounded wait, commit vs timeout | COMMITTED |
 | 03 joshua-catalog | the WOPR/JOSHUA voice: every line, completeness-gated | COMMITTED |
 | 02 projections-endings | three projected futures + three endings from settled history | COMMITTED |
-| 04 screens-fixtures | the finale screens + acceptance fixtures | building |
+| 04 screens-fixtures | the finale screens + acceptance fixtures | COMMITTED |
 
 ## How it is built (per section)
 
