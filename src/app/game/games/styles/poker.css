@@ -1,0 +1,30 @@
+/* POKER: showdown text. Shared tokens from gameui.css. */
+.pk-headline {
+  font-size: 22px;
+  letter-spacing: 0.06em;
+}
+.pk-line {
+  font-size: 15px;
+  color: var(--gs-muted);
+  text-shadow: none;
+}
+.pk-decisive {
+  font-size: 18px;
+  color: var(--gs-amber);
+}
+.pk-intel {
+  font-size: 18px;
+}
+@media (max-width: 760px) {
+  /* Five cards on one row at phone width. */
+  .pk-felt {
+    padding: 12px 10px;
+  }
+  .pk-felt .gs-card-lg {
+    --w: min(62px, calc((100vw - 96px) / 5));
+  }
+  .pk-felt .gs-hand-cards {
+    flex-wrap: nowrap;
+    gap: 6px;
+  }
+}
