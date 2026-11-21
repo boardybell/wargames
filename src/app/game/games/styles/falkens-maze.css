@@ -1,0 +1,175 @@
+/* FALKENS MAZE: quiet crisp walls, amber player bracket, labeled exit outline. */
+.mz-frame {
+  display: flex;
+  justify-content: center;
+}
+.mz-board {
+  display: block;
+  width: 100%;
+  max-width: min(640px, calc(100vh - 230px));
+  height: auto;
+  overflow: visible;
+}
+.mz-walls {
+  fill: none;
+  stroke: rgba(108, 182, 255, 0.62);
+  stroke-width: 0.9;
+  stroke-linecap: square;
+}
+.mz-trail {
+  fill: rgba(139, 169, 198, 0.45);
+}
+.mz-exit {
+  fill: rgba(126, 224, 168, 0.08);
+  stroke: var(--gs-good);
+  stroke-width: 0.7;
+  stroke-dasharray: 1.6 0.9;
+}
+.mz-exit-label,
+.mz-start-label {
+  font-size: 4.2px;
+  letter-spacing: 0.08em;
+  font-family: inherit;
+}
+.mz-exit-label {
+  fill: var(--gs-good);
+}
+.mz-start-label {
+  fill: var(--gs-muted);
+}
+.mz-player path {
+  fill: none;
+  stroke: var(--gs-amber);
+  stroke-width: 0.8;
+}
+.mz-player-core {
+  fill: var(--gs-amber);
+}
+.mz-route {
+  fill: none;
+  stroke: var(--gs-amber);
+  stroke-width: 1.1;
+  stroke-dasharray: 2 1.4;
+  stroke-linejoin: round;
+  opacity: 0.85;
+}
+.mz-hint {
+  fill: rgba(255, 184, 77, 0.12);
+  stroke: var(--gs-amber);
+  stroke-width: 0.6;
+  stroke-dasharray: 1 0.8;
+}
+
+.mz-moves {
+  grid-area: moves;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+.mz-moves-label {
+  font-size: 13px;
+  letter-spacing: 0.12em;
+  color: var(--gs-muted);
+  text-shadow: none;
+}
+.mz-assisted {
+  grid-area: assist;
+  align-self: center;
+  justify-self: center;
+  font-size: 13px;
+  letter-spacing: 0.1em;
+  color: var(--gs-amber);
+  border: 1px solid var(--gs-amber);
+  padding: 1px 6px;
+}
+
+.mz-pad,
+.mz-pad-keys {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(64px, 1fr));
+  grid-template-areas:
+    'moves up assist'
+    'left down right';
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.mz-pad-keys {
+  display: contents;
+}
+.mz-up { grid-area: up; }
+.mz-left { grid-area: left; }
+.mz-down { grid-area: down; }
+.mz-right { grid-area: right; }
+.gs-btn.mz-dir {
+  min-height: 56px;
+  flex-direction: column;
+  gap: 0;
+  padding: 4px;
+  font-size: 18px;
+}
+.mz-dir-name {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+}
+.gs-btn.mz-blocked {
+  border-style: dashed;
+  border-color: var(--gs-rule);
+  color: var(--gs-muted);
+  text-shadow: none;
+  background: repeating-linear-gradient(135deg, transparent 0 6px, rgba(108, 182, 255, 0.06) 6px 8px);
+}
+.gs-btn.mz-hinted {
+  border-color: var(--gs-amber);
+  color: var(--gs-amber);
+}
+.gs-btn.mz-bumped {
+  border-color: var(--gs-them);
+  color: var(--gs-them);
+}
+.gs-btn.mz-bump-0 { animation: mz-bump-a 260ms ease-out; }
+.gs-btn.mz-bump-1 { animation: mz-bump-b 260ms ease-out; }
+@keyframes mz-bump-b {
+  0% { transform: translateX(0); }
+  30% { transform: translateX(-3px); }
+  60% { transform: translateX(3px); }
+  100% { transform: translateX(0); }
+}
+@keyframes mz-bump-a {
+  0% { transform: translateX(0); }
+  30% { transform: translateX(-3px); }
+  60% { transform: translateX(3px); }
+  100% { transform: translateX(0); }
+}
+
+.mz-key {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+}
+.mz-key-player { color: var(--gs-amber); }
+.mz-key-exit { color: var(--gs-good); }
+.mz-key-trail { color: var(--gs-muted); }
+.mz-key-route { color: var(--gs-amber); }
+
+@media (max-width: 760px) {
+  .mz-board {
+    max-width: min(100%, 52vh);
+  }
+  .gs-btn.mz-dir {
+    min-height: 52px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .gs-btn.mz-bump-0,
+  .gs-btn.mz-bump-1 {
+    animation: none;
+  }
+}

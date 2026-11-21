@@ -180,3 +180,18 @@ export function rng(seed: number): () => number {
   }
 }
 export const newSeed = (): number => Math.floor(Math.random() * 1e9)
+
+// ---------------------------------------------------------------- layout
+/** True at the shared phone breakpoint (max-width 760px), live. */
+export function usePhone(query = '(max-width: 760px)'): boolean {
+  const get = (): boolean => typeof window !== 'undefined' && !!window.matchMedia?.(query).matches
+  const [phone, setPhone] = useState(get)
+  useEffect(() => {
+    const mq = window.matchMedia?.(query)
+    if (!mq) return
+    const on = (): void => setPhone(mq.matches)
+    mq.addEventListener('change', on)
+    return () => mq.removeEventListener('change', on)
+  }, [query])
+  return phone
+}

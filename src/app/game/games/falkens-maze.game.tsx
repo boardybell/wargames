@@ -1,273 +1,380 @@
-// FALKENS MAZE. A STRANGE GAME. Navigate a freshly generated perfect maze from
-// the start (top-left) to the exit (bottom-right) with the arrow keys or the
-// on-screen direction pad. Walls block movement, reaching the exit WINS, a move
-// counter tracks every step, and a new random maze is generated each play.
-// Self-contained: the maze is a perfect maze carved by a recursive-backtracker
-// DFS, so a solution always exists.
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+// FALKENS MAZE. Navigate a seeded perfect maze from the top-left start to the
+// labeled exit with the arrow keys, WASD or the direction pad. A move into a
+// wall is refused (WALL) and never counted. At the exit the shortest route is
+// revealed with your efficiency; RETRY THIS MAZE replays the same seed, NEW
+// MAZE carves another. Best moves are kept per seed and size. Rules live in
+// engines/falkens-maze.ts (design: docs/games-design-review.md §1).
+import { useState } from 'react'
 import type { GameEntry, GameProps } from './types'
+import { Action, ActionBar, GameReport, GameResult, GameShell, Panel, Segmented } from './ui/GameShell'
+import { cue, newSeed, useEventLog, useGameKeys, useGameRecords } from './hooks'
+import {
+  DIR_NAME,
+  SIZES,
+  START,
+  type Dir,
+  type Maze,
+  type MazeSize,
+  type Pos,
+  efficiency,
+  exitOf,
+  generate,
+  hintFrom,
+  isOpen,
+  recordKey,
+  samePos,
+  shortestPath,
+  tryMove,
+} from './engines/falkens-maze'
+import './styles/falkens-maze.css'
 
-const COLS = 11
-const ROWS = 11
+const U = 10 // SVG units per cell
+/** Five-digit maze numbers: short enough to read and quote. */
+const mazeSeed = (): number => (newSeed() % 90000) + 10000
 
-// A cell knows which of its four walls are still standing. The carver knocks
-// walls down to connect cells into one spanning tree (a perfect maze).
-interface Cell {
-  n: boolean
-  e: boolean
-  s: boolean
-  w: boolean
-  seen: boolean
+interface Run {
+  readonly maze: Maze
+  readonly size: MazeSize
+  readonly pos: Pos
+  readonly moves: number
+  readonly visited: readonly number[]
+  readonly hints: number
+  readonly hint: Dir | null
+  readonly bump: { dir: Dir; n: number } | null
+  readonly won: boolean
 }
 
-interface Maze {
-  readonly cells: Cell[]
-  readonly cols: number
-  readonly rows: number
+const freshRun = (size: MazeSize, seed: number): Run => ({
+  maze: generate(seed, SIZES[size].n),
+  size,
+  pos: START,
+  moves: 0,
+  visited: [0],
+  hints: 0,
+  hint: null,
+  bump: null,
+  won: false,
+})
+
+interface Best {
+  readonly moves: number
 }
 
-const idx = (c: number, r: number): number => r * COLS + c
-
-// Recursive backtracker carved iteratively so deep mazes never blow the stack.
-function generate(): Maze {
-  const cells: Cell[] = Array.from({ length: COLS * ROWS }, () => ({
-    n: true,
-    e: true,
-    s: true,
-    w: true,
-    seen: false,
-  }))
-  const stack: Array<{ c: number; r: number }> = []
-  let c = 0
-  let r = 0
-  cells[idx(c, r)]!.seen = true
-  stack.push({ c, r })
-
-  while (stack.length > 0) {
-    const top = stack[stack.length - 1]!
-    c = top.c
-    r = top.r
-    const nbrs: Array<{ c: number; r: number; dir: 'n' | 'e' | 's' | 'w' }> = []
-    if (r > 0 && !cells[idx(c, r - 1)]!.seen) nbrs.push({ c, r: r - 1, dir: 'n' })
-    if (c < COLS - 1 && !cells[idx(c + 1, r)]!.seen) nbrs.push({ c: c + 1, r, dir: 'e' })
-    if (r < ROWS - 1 && !cells[idx(c, r + 1)]!.seen) nbrs.push({ c, r: r + 1, dir: 's' })
-    if (c > 0 && !cells[idx(c - 1, r)]!.seen) nbrs.push({ c: c - 1, r, dir: 'w' })
-
-    if (nbrs.length === 0) {
-      stack.pop()
-      continue
+function MazeBoard({ run }: { run: Run }) {
+  const { maze, pos } = run
+  const exit = exitOf(maze)
+  const W = maze.cols * U
+  const H = maze.rows * U
+  const walls: string[] = []
+  for (let r = 0; r < maze.rows; r++)
+    for (let c = 0; c < maze.cols; c++) {
+      const cell = maze.cells[r * maze.cols + c]!
+      const x = c * U
+      const y = r * U
+      if (cell.n) walls.push(`M${x} ${y}h${U}`)
+      if (cell.w) walls.push(`M${x} ${y}v${U}`)
+      if (c === maze.cols - 1 && cell.e) walls.push(`M${x + U} ${y}v${U}`)
+      if (r === maze.rows - 1 && cell.s) walls.push(`M${x} ${y + U}h${U}`)
     }
-    const pick = nbrs[Math.floor(Math.random() * nbrs.length)]!
-    const here = cells[idx(c, r)]!
-    const there = cells[idx(pick.c, pick.r)]!
-    if (pick.dir === 'n') {
-      here.n = false
-      there.s = false
-    } else if (pick.dir === 'e') {
-      here.e = false
-      there.w = false
-    } else if (pick.dir === 's') {
-      here.s = false
-      there.n = false
-    } else {
-      here.w = false
-      there.e = false
-    }
-    there.seen = true
-    stack.push({ c: pick.c, r: pick.r })
-  }
-  return { cells, cols: COLS, rows: ROWS }
+  const route = run.won ? shortestPath(maze, START, exit) : []
+  const ctr = (p: Pos): string => `${p.c * U + U / 2} ${p.r * U + U / 2}`
+  const hintCell = run.hint ? tryMove(maze, pos, run.hint).pos : null
+  const k = 2.2 // bracket arm length
+  const px = pos.c * U
+  const py = pos.r * U
+  return (
+    <svg
+      className="mz-board"
+      viewBox={`-2 -2 ${W + 4} ${H + 10}`}
+      role="img"
+      aria-label={`Maze ${maze.cols} by ${maze.rows}. You are at column ${pos.c + 1}, row ${pos.r + 1}. Exit at column ${exit.c + 1}, row ${exit.r + 1}.`}
+      data-testid="maze-board"
+    >
+      {run.visited.map((i) => (
+        <circle key={i} className="mz-trail" cx={(i % maze.cols) * U + U / 2} cy={Math.floor(i / maze.cols) * U + U / 2} r={0.7} />
+      ))}
+      {route.length > 1 && (
+        <polyline className="mz-route" points={route.map(ctr).join(' ')} data-testid="maze-route" />
+      )}
+      <rect className="mz-exit" x={exit.c * U + 1.2} y={exit.r * U + 1.2} width={U - 2.4} height={U - 2.4} />
+      <text className="mz-exit-label" x={W} y={H + 6.5} textAnchor="end">
+        EXIT ▲
+      </text>
+      <text className="mz-start-label" x={0} y={H + 6.5}>
+        START (TOP LEFT)
+      </text>
+      {hintCell && (
+        <rect
+          className="mz-hint"
+          x={hintCell.c * U + 2}
+          y={hintCell.r * U + 2}
+          width={U - 4}
+          height={U - 4}
+          data-testid="maze-hint-cell"
+        />
+      )}
+      <path className="mz-walls" d={walls.join('')} />
+      <g className="mz-player" data-testid="maze-player">
+        <path
+          d={`M${px + 1.5 + k} ${py + 1.5}h${-k}v${k} M${px + U - 1.5 - k} ${py + 1.5}h${k}v${k} M${px + 1.5 + k} ${py + U - 1.5}h${-k}v${-k} M${px + U - 1.5 - k} ${py + U - 1.5}h${k}v${-k}`}
+        />
+        <rect className="mz-player-core" x={px + U / 2 - 1.6} y={py + U / 2 - 1.6} width={3.2} height={3.2} transform={`rotate(45 ${px + U / 2} ${py + U / 2})`} />
+      </g>
+    </svg>
+  )
 }
 
-interface Pos {
-  readonly c: number
-  readonly r: number
-}
-const START: Pos = { c: 0, r: 0 }
-const EXIT: Pos = { c: COLS - 1, r: ROWS - 1 }
+const PAD: readonly { d: Dir; area: string; testId: string; arrow: string }[] = [
+  { d: 'n', area: 'up', testId: 'maze-up', arrow: '▲' },
+  { d: 'w', area: 'left', testId: 'maze-left', arrow: '◀' },
+  { d: 's', area: 'down', testId: 'maze-down', arrow: '▼' },
+  { d: 'e', area: 'right', testId: 'maze-right', arrow: '▶' },
+]
 
 function FalkensMaze({ onExit }: GameProps) {
-  const [maze, setMaze] = useState<Maze>(() => generate())
-  const [pos, setPos] = useState<Pos>(START)
-  const [moves, setMoves] = useState(0)
-  const [won, setWon] = useState(false)
+  const rec = useGameRecords('falkens-maze')
+  const log = useEventLog()
+  const [run, setRun] = useState<Run>(() => freshRun('standard', mazeSeed()))
+  const [runId, setRunId] = useState(1)
+  const { maze, pos, size } = run
+  const exit = exitOf(maze)
+  const key = recordKey(size, maze.seed)
+  const best = rec.get<Best | null>(key, null)
+  const shortest = shortestPath(maze, START, exit).length - 1
 
-  const move = useCallback(
-    (dir: 'n' | 'e' | 's' | 'w'): void => {
-      if (won) return
-      setPos((p) => {
-        const cell = maze.cells[idx(p.c, p.r)]!
-        if (cell[dir]) return p // a wall blocks this direction
-        const next: Pos =
-          dir === 'n'
-            ? { c: p.c, r: p.r - 1 }
-            : dir === 'e'
-              ? { c: p.c + 1, r: p.r }
-              : dir === 's'
-                ? { c: p.c, r: p.r + 1 }
-                : { c: p.c - 1, r: p.r }
-        setMoves((m) => m + 1)
-        if (next.c === EXIT.c && next.r === EXIT.r) setWon(true)
-        return next
-      })
-    },
-    [maze, won],
-  )
+  const start = (sz: MazeSize, seed: number, why: string): void => {
+    setRun(freshRun(sz, seed))
+    setRunId((n) => n + 1)
+    log.reset()
+    log.push({ text: why })
+    cue.tick()
+  }
+  const retry = (): void => start(size, maze.seed, `RETRYING MAZE #${maze.seed}. SAME WALLS.`)
+  const fresh = (sz: MazeSize = size): void => start(sz, mazeSeed(), `NEW ${SIZES[sz].label} MAZE CARVED.`)
 
-  // Keyboard control lives on a focusable root so arrows never scroll the page.
-  const rootRef = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    rootRef.current?.focus()
-  }, [])
-
-  const onKey = (e: React.KeyboardEvent): void => {
-    const k = e.key
-    if (k === 'ArrowUp' || k === 'w' || k === 'W') {
-      e.preventDefault()
-      move('n')
-    } else if (k === 'ArrowRight' || k === 'd' || k === 'D') {
-      e.preventDefault()
-      move('e')
-    } else if (k === 'ArrowDown' || k === 's' || k === 'S') {
-      e.preventDefault()
-      move('s')
-    } else if (k === 'ArrowLeft' || k === 'a' || k === 'A') {
-      e.preventDefault()
-      move('w')
+  const move = (d: Dir): void => {
+    if (run.won) return
+    const res = tryMove(maze, pos, d)
+    if (!res.ok) {
+      cue.deny()
+      setRun({ ...run, bump: { dir: d, n: (run.bump?.n ?? 0) + 1 } })
+      log.push({ text: `WALL ${DIR_NAME[d]}. NO MOVE COUNTED.`, kind: 'bad' })
+      return
     }
-  }
-
-  const playAgain = (): void => {
-    setMaze(generate())
-    setPos(START)
-    setMoves(0)
-    setWon(false)
-    rootRef.current?.focus()
-  }
-
-  // Render the maze as monospace glyphs. Each cell is two chars wide so the grid
-  // reads square-ish in a terminal font. Walls are drawn from each cell's own
-  // flags; the player is @, the exit is >.
-  const rows = useMemo(() => {
-    const out: string[] = []
-    // Top border.
-    let top = '+'
-    for (let x = 0; x < maze.cols; x++) top += '--+'
-    out.push(top)
-    for (let r = 0; r < maze.rows; r++) {
-      let mid = '|'
-      let bot = '+'
-      for (let c = 0; c < maze.cols; c++) {
-        const cell = maze.cells[idx(c, r)]!
-        const here = c === pos.c && r === pos.r
-        const isExit = c === EXIT.c && r === EXIT.r
-        const glyph = here ? ' @' : isExit ? ' >' : '  '
-        mid += glyph + (cell.e ? '|' : ' ')
-        bot += (cell.s ? '--' : '  ') + '+'
+    const moves = run.moves + 1
+    const i = res.pos.r * maze.cols + res.pos.c
+    const visited = run.visited.includes(i) ? run.visited : [...run.visited, i]
+    const won = samePos(res.pos, exit)
+    setRun({ ...run, pos: res.pos, moves, visited, hint: null, bump: null, won })
+    if (won) {
+      cue.win()
+      const assisted = run.hints > 0
+      const eff = efficiency(moves, shortest)
+      log.push({ text: `EXIT REACHED IN ${moves} MOVES. SHORTEST ROUTE ${shortest}. EFFICIENCY ${eff}%.`, kind: 'good' })
+      if (!assisted) {
+        rec.recordOnce(`${key}:${runId}`, () => {
+          rec.update<Best | null>(key, (p) => (!p || moves < p.moves ? { moves } : p))
+        })
       }
-      out.push(mid)
-      out.push(bot)
+    } else {
+      cue.select()
+      log.push({ text: `MOVED ${DIR_NAME[d]}. MOVE ${moves}.` })
     }
-    return out
-  }, [maze, pos])
+  }
+
+  const hint = (): void => {
+    if (run.won) return
+    const d = hintFrom(maze, pos)
+    if (!d) return
+    cue.tick()
+    setRun({ ...run, hint: d, hints: run.hints + 1, bump: null })
+    log.push({ text: `HINT: NEXT STEP ${DIR_NAME[d]}. RUN MARKED ASSISTED.`, kind: 'warn' })
+  }
+
+  useGameKeys((k) => {
+    const key = k.toLowerCase()
+    const d: Dir | null =
+      k === 'ArrowUp' || key === 'w' ? 'n' : k === 'ArrowDown' || key === 's' ? 's' : k === 'ArrowLeft' || key === 'a' ? 'w' : k === 'ArrowRight' || key === 'd' ? 'e' : null
+    if (d) {
+      move(d)
+      return true
+    }
+    if (key === 'h' && !run.won) {
+      hint()
+      return true
+    }
+    if (run.won && key === 'r') {
+      retry()
+      return true
+    }
+    if (run.won && key === 'n') {
+      fresh()
+      return true
+    }
+    return false
+  })
+
+  const assisted = run.hints > 0
+  const eff = efficiency(run.moves, shortest)
+  const lastEv = log.events[log.events.length - 1]
+  const bumped = run.bump !== null
+
+  const phase = run.won
+    ? 'EXIT REACHED'
+    : bumped
+      ? `WALL ${DIR_NAME[run.bump!.dir]}. NO MOVE COUNTED.`
+      : run.hint
+        ? `HINT: GO ${DIR_NAME[run.hint]}`
+        : run.moves === 0
+          ? 'FIND THE EXIT. CHOOSE A DIRECTION.'
+          : 'CHOOSE A DIRECTION'
+
+  const side = (
+    <>
+      {run.won ? (
+        <GameResult
+          outcome="win"
+          headline="EXIT REACHED"
+          reason={
+            assisted
+              ? `ASSISTED RUN (${run.hints} HINT${run.hints === 1 ? '' : 'S'}). BEST NOT UPDATED.`
+              : moves2text(run.moves, shortest)
+          }
+          metrics={[
+            { label: 'MOVES', value: run.moves },
+            { label: 'SHORTEST', value: shortest },
+            { label: 'EFFICIENCY', value: `${eff}%`, tone: eff === 100 ? 'amber' : 'normal' },
+            { label: 'BEST', value: best ? best.moves : '—', tone: 'dim' },
+          ]}
+          testId="maze-result"
+        >
+          <Action variant="primary" onClick={retry} testId="maze-retry" shortcut="R">
+            RETRY THIS MAZE
+          </Action>
+          <Action onClick={() => fresh()} testId="maze-again" shortcut="N">
+            NEW MAZE
+          </Action>
+        </GameResult>
+      ) : (
+        <Panel title="NAVIGATION">
+          <div className="mz-pad">
+            <span className="mz-moves" data-testid="maze-moves">
+              <span className="mz-moves-label">MOVES</span>
+              {run.moves}
+            </span>
+            {assisted && <span className="mz-assisted">ASSISTED</span>}
+            <div className="mz-pad-keys" role="group" aria-label="Direction pad">
+            {PAD.map(({ d, area, testId, arrow }) => {
+              const blocked = !isOpen(maze, pos, d)
+              const cls = [
+                'gs-btn',
+                'mz-dir',
+                `mz-${area}`,
+                blocked ? 'mz-blocked' : '',
+                run.hint === d ? 'mz-hinted' : '',
+                run.bump?.dir === d ? `mz-bumped mz-bump-${run.bump.n % 2}` : '',
+              ]
+                .filter(Boolean)
+                .join(' ')
+              return (
+                <button
+                  key={d}
+                  type="button"
+                  className={cls}
+                  onClick={() => move(d)}
+                  data-testid={testId}
+                  aria-label={`${DIR_NAME[d]}${blocked ? ', wall' : ''}`}
+                  aria-keyshortcuts={d === 'n' ? 'ArrowUp' : d === 's' ? 'ArrowDown' : d === 'w' ? 'ArrowLeft' : 'ArrowRight'}
+                >
+                  <span aria-hidden="true">{arrow}</span>
+                  <span className="mz-dir-name">{blocked ? 'WALL' : DIR_NAME[d]}</span>
+                </button>
+              )
+            })}
+            </div>
+          </div>
+          <ActionBar label="Assistance">
+            <Action onClick={hint} testId="maze-hint" shortcut="H">
+              HINT (MARKS RUN ASSISTED)
+            </Action>
+          </ActionBar>
+        </Panel>
+      )}
+      <Panel title="KEY">
+        <ul className="mz-key">
+          <li>
+            <span className="mz-key-player">[◆]</span> YOU
+          </li>
+          <li>
+            <span className="mz-key-exit">▭</span> EXIT (BOTTOM RIGHT)
+          </li>
+          <li>
+            <span className="mz-key-trail">·</span> CELLS VISITED
+          </li>
+          {run.won && (
+            <li>
+              <span className="mz-key-route">- -</span> SHORTEST ROUTE
+            </li>
+          )}
+        </ul>
+      </Panel>
+    </>
+  )
 
   return (
-    <div
-      className="wg-screen"
-      data-testid="game-falkens-maze"
-      ref={rootRef}
-      tabIndex={0}
-      onKeyDown={onKey}
-      style={{ outline: 'none' }}
-    >
-      <div className="wg-out">
-        <div className="wg-dim">FALKENS MAZE</div>
-        <div className="wg-dim" style={{ marginBottom: '0.4rem' }}>
-          A STRANGE GAME. FIND THE EXIT ( &gt; ).   MOVES {moves}
-        </div>
-
-        <pre
-          style={{
-            margin: '0 0 0.6rem',
-            lineHeight: 1,
-            fontFamily: 'inherit',
-            letterSpacing: '0',
+    <GameShell
+      slug="falkens-maze"
+      title="FALKENS MAZE"
+      objective="REACH THE EXIT IN AS FEW MOVES AS THE MAZE ALLOWS."
+      phase={phase}
+      phaseTone={bumped ? 'red' : 'amber'}
+      metrics={[
+        { label: 'MAZE', value: `#${maze.seed}`, tone: 'dim', title: 'Maze seed: retry replays the same walls' },
+        { label: 'SIZE', value: `${maze.cols} X ${maze.rows}` },
+        { label: 'BEST', value: best ? `${best.moves} MOVES` : '—', tone: 'dim', title: 'Best unassisted moves for this maze and size' },
+      ]}
+      toolbar={
+        <Segmented<MazeSize>
+          label="SIZE"
+          value={size}
+          options={(Object.keys(SIZES) as MazeSize[]).map((s) => ({ value: s, label: SIZES[s].label }))}
+          onChange={(s) => {
+            if (s !== size) fresh(s)
           }}
-        >
-          {rows.join('\n')}
-        </pre>
-
-        {won && (
-          <div className="wg-big wg-amber" style={{ marginBottom: '0.4rem' }}>
-            YOU REACHED THE EXIT IN {moves} MOVES. YOU WIN.
-          </div>
-        )}
-
-        <div className="wg-opts">
-          <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap' }}>
-            <button
-              type="button"
-              className="wg-opt"
-              onClick={() => move('n')}
-              data-testid="maze-up"
-              disabled={won}
-            >
-              [ UP ]
-            </button>
-            <button
-              type="button"
-              className="wg-opt"
-              onClick={() => move('w')}
-              data-testid="maze-left"
-              disabled={won}
-            >
-              [ LEFT ]
-            </button>
-            <button
-              type="button"
-              className="wg-opt"
-              onClick={() => move('s')}
-              data-testid="maze-down"
-              disabled={won}
-            >
-              [ DOWN ]
-            </button>
-            <button
-              type="button"
-              className="wg-opt"
-              onClick={() => move('e')}
-              data-testid="maze-right"
-              disabled={won}
-            >
-              [ RIGHT ]
-            </button>
-          </div>
-          {won && (
-            <button
-              type="button"
-              className="wg-opt"
-              onClick={playAgain}
-              data-testid="maze-again"
-            >
-              &gt; PLAY AGAIN
-            </button>
-          )}
-          <button
-            type="button"
-            className="wg-opt wg-amber"
-            onClick={onExit}
-            data-testid="game-exit"
-          >
-            &gt; EXIT
-          </button>
-        </div>
-
-        <div className="wg-hint">
-          ARROW KEYS OR WASD TO MOVE. WALLS BLOCK YOU. A FRESH MAZE EACH PLAY.
-        </div>
+          testId="maze-size"
+        />
+      }
+      help={
+        <>
+          <p>MOVE FROM THE START (TOP LEFT) TO THE EXIT (BOTTOM RIGHT). EVERY MAZE IS PERFECT: EXACTLY ONE ROUTE CONNECTS ANY TWO CELLS.</p>
+          <ul>
+            <li>ARROW KEYS, WASD OR THE DIRECTION PAD MOVE ONE CELL. KEYS AND BUTTONS BEHAVE THE SAME.</li>
+            <li>A DIRECTION BLOCKED BY A WALL IS MARKED WALL ON THE PAD. TRYING IT IS REFUSED AND DOES NOT COUNT AS A MOVE.</li>
+            <li>THE SHORTEST ROUTE STAYS HIDDEN UNTIL YOU REACH THE EXIT; THEN IT IS DRAWN WITH YOUR EFFICIENCY (SHORTEST ROUTE DIVIDED BY YOUR MOVES).</li>
+            <li>HINT (H) SHOWS THE NEXT STEP OF THE SHORTEST ROUTE. ANY HINT MARKS THE RUN ASSISTED, AND ASSISTED RUNS DO NOT SET A BEST.</li>
+            <li>SIZE IS THE DIFFICULTY: SMALL 7 X 7, STANDARD 11 X 11, LARGE 15 X 15. CHANGING SIZE CARVES A NEW MAZE AT ONCE.</li>
+            <li>BEST MOVES ARE SAVED PER MAZE NUMBER AND SIZE. RETRY THIS MAZE (R) REPLAYS THE SAME WALLS; NEW MAZE (N) CARVES ANOTHER.</li>
+          </ul>
+        </>
+      }
+      onRestart={retry}
+      inProgress={run.moves > 0 && !run.won}
+      restartLabel="RETRY THIS MAZE"
+      onExit={onExit}
+      side={side}
+      report={<GameReport events={log.events} />}
+      announce={lastEv?.text}
+    >
+      <div className="mz-frame">
+        <MazeBoard run={run} />
       </div>
-    </div>
+    </GameShell>
   )
+}
+
+function moves2text(moves: number, shortest: number): string {
+  if (moves === shortest) return `PERFECT ROUTE. ${moves} MOVES, NONE WASTED.`
+  return `${moves} MOVES AGAINST A SHORTEST ROUTE OF ${shortest}. ${moves - shortest} EXTRA.`
 }
 
 export const entry: GameEntry = { id: 'FALKENS MAZE', Component: FalkensMaze }

@@ -806,6 +806,18 @@ button.gs-card.is-selected:hover {
   font-size: 22px;
 }
 
+/* short command labels on phones */
+.gs-short { display: none; }
+@media (max-width: 760px) {
+  .gs-long { display: none; }
+  .gs-short { display: inline; }
+}
+/* selection must beat hover everywhere */
+.gs-shell [aria-pressed='true']:hover,
+.gs-shell .is-selected:hover {
+  border-color: var(--gs-amber);
+}
+
 /* ---------------------------------------------------------------- phone */
 @media (max-width: 760px) {
   .wg-screen.gs-shell {
@@ -822,12 +834,16 @@ button.gs-card.is-selected:hover {
   .gs-id {
     flex-basis: 100%;
   }
+  .gs-head {
+    flex-direction: row;
+    align-items: center;
+  }
   .gs-title {
-    font-size: 24px;
+    font-size: 20px;
   }
   .gs-objective {
     margin-top: 2px;
-    font-size: 14px;
+    font-size: 13px;
   }
   .gs-cmds {
     gap: 0 4px;
@@ -845,9 +861,18 @@ button.gs-card.is-selected:hover {
     font-size: 16px;
   }
   .gs-status > .gs-metrics {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
-    gap: 8px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px 14px;
+  }
+  .gs-status > .gs-metrics .gs-metric {
+    flex-direction: row;
+    align-items: baseline;
+    gap: 6px;
+  }
+  .gs-status {
+    padding: 6px 0 8px;
+    gap: 4px;
   }
   .gs-metric dt {
     letter-spacing: 0;
@@ -893,6 +918,9 @@ button.gs-card.is-selected:hover {
 }
 
 @media (max-width: 360px) {
+  .gs-objective {
+    display: none;
+  }
   .gs-cmds > .gs-btn.gs-quiet {
     padding-inline: 4px;
     letter-spacing: 0;

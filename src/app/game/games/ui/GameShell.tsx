@@ -91,7 +91,8 @@ export function GameShell(p: GameShellProps) {
               onClick={() => setHelpOpen((o) => !o)}
               data-testid="game-help"
             >
-              HOW TO PLAY
+              <span className="gs-long">HOW TO PLAY</span>
+              <span className="gs-short" aria-hidden="true">HELP</span>
             </button>
           )}
           {p.onRestart && (
@@ -105,7 +106,8 @@ export function GameShell(p: GameShellProps) {
             </button>
           )}
           <button type="button" className="gs-btn gs-quiet" onClick={p.onExit} data-testid="game-exit">
-            EXIT TO GAMES
+            <span className="gs-long">EXIT TO GAMES</span>
+            <span className="gs-short" aria-hidden="true">EXIT</span>
           </button>
         </nav>
       </header>

@@ -1,0 +1,229 @@
+/* AIR-TO-GROUND ACTIONS: 3x2 target cards (phone: full-width list with the
+   profile panel after the locked row). Lock = amber border + LOCKED +
+   aria-pressed; hover only brightens the border; focus is a separate dashed
+   blue outline. */
+.atg-targets {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.atg-slot {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.atg-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  min-height: 44px;
+  height: 100%;
+  width: 100%;
+  padding: 10px 12px;
+  text-align: left;
+  border: 1px solid var(--gs-rule);
+  background: var(--gs-panel);
+  color: var(--gs-mine);
+  cursor: pointer;
+}
+.atg-card:not(.is-locked):hover:not(:disabled) {
+  border-color: var(--gs-rule-strong);
+}
+.gs-shell .atg-card:focus-visible {
+  outline: 2px dashed var(--gs-mine);
+  outline-offset: 3px;
+}
+.atg-card.is-locked {
+  border: 2px solid var(--gs-amber);
+  padding: 9px 11px;
+  box-shadow: 0 0 0 1px rgba(255, 184, 77, 0.25) inset;
+}
+.atg-card.is-down {
+  cursor: default;
+  color: var(--gs-muted);
+  border-style: dashed;
+  text-shadow: none;
+}
+.atg-card:disabled:not(.is-down) {
+  cursor: default;
+}
+.atg-card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.atg-name {
+  font-size: 16px;
+  letter-spacing: 0.04em;
+}
+.atg-key {
+  font: inherit;
+  font-size: 12px;
+  color: var(--gs-muted);
+  border: 1px solid var(--gs-rule);
+  padding: 0 4px;
+  margin-right: 2px;
+}
+.atg-locked {
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  color: #08121f;
+  background: var(--gs-amber);
+  padding: 1px 6px;
+  text-shadow: none;
+  white-space: nowrap;
+}
+.atg-down-tag {
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  color: var(--gs-them);
+  border: 1px solid var(--gs-them);
+  padding: 0 5px;
+  white-space: nowrap;
+}
+.atg-kind {
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  color: var(--gs-muted);
+  text-shadow: none;
+}
+.atg-stats {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+.atg-rating-label {
+  font-size: 12px;
+  color: var(--gs-muted);
+  text-shadow: none;
+}
+.atg-delta {
+  margin-left: 4px;
+  font-size: 12px;
+  padding: 0 3px;
+  border: 1px solid currentColor;
+}
+.atg-down { color: var(--gs-amber); }
+.atg-up { color: var(--gs-them); }
+.atg-hp {
+  display: inline-flex;
+  gap: 3px;
+  margin-left: auto;
+}
+.atg-pip {
+  width: 10px;
+  height: 10px;
+  background: var(--gs-mine);
+  opacity: 0.85;
+}
+.atg-pip.is-spent {
+  background: transparent;
+  border: 1px solid var(--gs-them);
+  opacity: 1;
+}
+.atg-effect {
+  font-size: 13px;
+  color: var(--gs-amber);
+  text-shadow: none;
+  border-top: 1px dashed var(--gs-rule);
+  padding-top: 5px;
+}
+.atg-effect.is-spent {
+  color: var(--gs-muted);
+}
+
+/* profile panel */
+.atg-profile {
+  border-color: var(--gs-amber);
+}
+.atg-profiles {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.atg-prof {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.atg-prof .gs-action,
+.atg-prof .gs-btn {
+  width: 100%;
+}
+.atg-prof-name {
+  font-size: 15px;
+  letter-spacing: 0.06em;
+}
+.atg-prof-sub {
+  font-size: 12px;
+  color: var(--gs-muted);
+  text-shadow: none;
+}
+.atg-odds {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.atg-odds > div {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 6px;
+}
+.atg-odds dt {
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  color: var(--gs-muted);
+  text-shadow: none;
+}
+.atg-odds dd {
+  margin: 0;
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+}
+.atg-loss {
+  color: var(--gs-them);
+}
+.atg-of {
+  font-size: 11px;
+  color: var(--gs-muted);
+}
+.atg-note {
+  font-size: 13px;
+  color: var(--gs-muted);
+  text-shadow: none;
+  margin: 8px 0 0 !important;
+}
+.atg-warn {
+  color: var(--gs-amber);
+}
+
+@media (max-width: 1000px) and (min-width: 761px) {
+  .atg-targets {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 760px) {
+  .atg-targets {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+  }
+  .atg-card {
+    padding: 8px 10px;
+    gap: 3px;
+  }
+  .atg-card.is-locked {
+    padding: 7px 9px;
+  }
+  .atg-name {
+    font-size: 15px;
+  }
+}
