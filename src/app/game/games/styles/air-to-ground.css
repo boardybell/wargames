@@ -47,7 +47,11 @@
   text-shadow: none;
 }
 .atg-card:disabled:not(.is-down) {
-  cursor: default;
+  cursor: not-allowed;
+  color: var(--gs-muted);
+  border-color: var(--gs-rule);
+  border-style: dashed;
+  box-shadow: none;
 }
 .atg-card-head {
   display: flex;

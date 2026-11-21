@@ -1,15 +1,8 @@
 /* CHECKERS board sizing and piece details (shared kit: ui/gameui.css). */
 
-/* Fit 8 cells + a narrow coordinate gutter inside the 16px page margins:
-   ~43px cells at 390px wide, capped by maxPx on desktop. */
+/* Use the shared container sizing with a narrow coordinate gutter. */
 .gs-board-wrap.ck-board {
-  --gs-cellsize: min(calc((100vw - 48px) / 8), calc(var(--board-max) / 8));
-}
-.ck-board .gs-coords-left {
-  width: 14px;
-}
-.ck-board .gs-coords-top {
-  margin-left: 14px;
+  --gs-coordsize: 14px;
 }
 .ck-board .gs-cell.is-light {
   cursor: default;
@@ -59,4 +52,19 @@
 /* Squares already visited by the jump in progress. */
 .ck-board .gs-cell.is-path {
   box-shadow: inset 0 0 0 2px rgba(255, 184, 77, 0.5);
+}
+
+/* Two short settings groups fit together on a typical phone. Smaller phones
+   keep the shared full-width rows and the same 44px control height. */
+@media (min-width: 380px) and (max-width: 760px) {
+  [data-testid='game-checkers'] .gs-cmds > .gs-seg {
+    grid-column: span 3;
+  }
+  [data-testid='game-checkers'] .gs-seg-label {
+    flex: 0 0 auto;
+    font-size: 13px;
+  }
+  [data-testid='game-checkers'] .gs-seg > .gs-btn {
+    font-size: 13px;
+  }
 }

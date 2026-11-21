@@ -14,7 +14,12 @@
 .ht-table {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 12px;
+}
+.ht-side {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 .ht-table .gs-trick {
   max-width: none;

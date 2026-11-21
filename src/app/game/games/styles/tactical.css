@@ -74,6 +74,9 @@ button.tg-card:hover:not(:disabled) {
   border: 2px solid var(--gs-amber);
   padding: 7px 9px;
 }
+button.tg-card[aria-pressed='true']:hover:not(:disabled) {
+  border-color: var(--gs-amber);
+}
 .tg-card:disabled,
 .tg-card.is-out {
   border-style: dashed;
@@ -107,12 +110,16 @@ button.tg-card:hover:not(:disabled) {
 }
 .tg-card .gs-bar {
   font-size: 13px;
+  grid-template-columns: 6ch minmax(0, 1fr) 5ch;
+  gap: 6px;
 }
 
-:is([data-testid='game-fighter-combat'], [data-testid='game-desert-warfare'], [data-testid='game-guerrilla-engagement']) .gs-cmds .gs-seg + .gs-seg {
-  margin-left: 10px;
-  padding-left: 10px;
-  border-left: 1px solid var(--gs-rule);
+@media (min-width: 761px) {
+  :is([data-testid='game-fighter-combat'], [data-testid='game-desert-warfare'], [data-testid='game-guerrilla-engagement']) .gs-cmds .gs-seg + .gs-seg {
+    margin-left: 10px;
+    padding-left: 10px;
+    border-left: 1px solid var(--gs-rule);
+  }
 }
 
 /* ---------------------------------------------------------------- fighter */
@@ -208,6 +215,7 @@ button.tg-card:hover:not(:disabled) {
   justify-content: space-between;
   text-align: left;
   padding: 6px 8px;
+  min-height: 56px;
 }
 .fc-act {
   display: flex;
@@ -215,12 +223,16 @@ button.tg-card:hover:not(:disabled) {
   line-height: 1.15;
 }
 .fc-act small {
-  font-size: 11px;
+  font-size: 13px;
   color: var(--gs-muted);
   letter-spacing: 0.02em;
 }
 .fc-bank .gs-reason {
   font-size: 12px;
+}
+.fc-bank + .tg-note,
+.ge-pad + .tg-note {
+  margin-top: 10px;
 }
 
 /* ---------------------------------------------------------------- guerrilla */
@@ -231,10 +243,10 @@ button.tg-card:hover:not(:disabled) {
 .ge-map .gs-cell.is-fog {
   background: repeating-linear-gradient(45deg, rgba(3, 8, 16, 0.95) 0 3px, rgba(18, 30, 50, 0.8) 3px 6px);
 }
-.ge-map .gs-cell.is-range:not(.is-fog) {
+.ge-map .gs-cell.is-range:not(.is-fog):not(.is-selected) {
   box-shadow: inset 0 0 0 2px rgba(255, 184, 77, 0.35);
 }
-.ge-map .gs-cell.is-range.is-fog {
+.ge-map .gs-cell.is-range.is-fog:not(.is-selected) {
   box-shadow: inset 0 0 0 2px rgba(255, 184, 77, 0.35);
 }
 .ge-map .gs-cell.t-objective {
@@ -305,14 +317,14 @@ button.tg-card:hover:not(:disabled) {
 }
 .ge-layout {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 14px;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 220px);
+  gap: 12px;
   align-items: start;
 }
 .ge-beside {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
 }
 .ge-hold {
   border: 1px solid rgba(255, 184, 77, 0.55);
@@ -426,9 +438,44 @@ button.tg-card:hover:not(:disabled) {
   padding: 6px 10px;
 }
 
-@media (max-width: 760px) {
+@media (max-width: 1100px) {
   .ge-layout {
     grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 760px) {
+  .tg-cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  /* All three troopers stay together above the order pad. */
+  .ge-beside .tg-cards {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+  }
+  .ge-beside .tg-card {
+    padding: 8px;
+  }
+  .ge-beside .tg-card[aria-pressed='true'] {
+    padding: 7px;
+  }
+  .ge-beside .tg-card-head {
+    flex-wrap: wrap;
+    gap: 2px 6px;
+    letter-spacing: 0;
+  }
+  .ge-beside .gs-bar {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 4px;
+  }
+  .ge-beside .gs-bar-track {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+  .ge-beside .gs-bar-value {
+    grid-column: 2;
+    grid-row: 1;
+    min-width: 0;
   }
   .fc-row {
     font-size: 14px;

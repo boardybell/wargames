@@ -44,8 +44,8 @@
 .bc-node.is-ai { border-color: rgba(255, 92, 92, 0.55); background: rgba(255, 92, 92, 0.05); color: var(--gs-them); }
 .bc-node.is-n { border-style: dashed; color: #b9cde0; background: transparent; }
 .bc-node.is-eligible { box-shadow: inset 0 0 0 1px rgba(255, 184, 77, 0.45); }
-.bc-node.is-inspect { outline: 2px solid var(--gs-mine); outline-offset: 1px; }
-.bc-node.is-target { outline: 3px solid var(--gs-amber); outline-offset: 1px; background: rgba(255, 184, 77, 0.1); }
+.bc-node.is-inspect { border-color: var(--gs-mine); box-shadow: inset 0 0 0 1px var(--gs-mine); }
+.bc-node.is-target { border-color: var(--gs-amber); box-shadow: inset 0 0 0 2px var(--gs-amber); background: rgba(255, 184, 77, 0.1); }
 .bc-node-name { font-size: 15px; letter-spacing: 0.04em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .bc-node-side { font-size: 12px; color: var(--gs-muted); letter-spacing: 0.06em; }
 .bc-node-num { font-size: 24px; line-height: 1; font-variant-numeric: tabular-nums; }

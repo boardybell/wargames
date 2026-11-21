@@ -41,8 +41,8 @@
 .tt-node:hover { background: rgba(108, 182, 255, 0.14); }
 .tt-node.is-ai:hover { background: rgba(255, 92, 92, 0.12); }
 .tt-node.is-selected {
-  outline: 2px solid var(--gs-amber);
-  outline-offset: 1px;
+  border-color: var(--gs-amber);
+  box-shadow: inset 0 0 0 1px var(--gs-amber);
 }
 /* Front line: a thick amber bar on the contested sector's near side. */
 .tt-node.is-contested::before {
