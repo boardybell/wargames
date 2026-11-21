@@ -9,6 +9,7 @@
 // vertical scroll surface: main, side, then history.
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import './gameui.css'
+import { usePhone } from '../hooks'
 
 export type Tone = 'normal' | 'dim' | 'amber' | 'red' | 'good'
 
@@ -55,6 +56,9 @@ export interface GameShellProps {
 export function GameShell(p: GameShellProps) {
   const [confirming, setConfirming] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const phone = usePhone()
+  const settingsId = useId()
   const helpId = useId()
   const layout = p.layout ?? 'board'
   useEffect(() => {
@@ -81,7 +85,19 @@ export function GameShell(p: GameShellProps) {
           {p.objective && <p className="gs-objective">{p.objective}</p>}
         </div>
         <nav className="gs-cmds" aria-label="Game commands">
-          {p.toolbar}
+          {p.toolbar && !phone && p.toolbar}
+          {p.toolbar && phone && (
+            <button
+              type="button"
+              className="gs-btn gs-quiet"
+              aria-expanded={settingsOpen}
+              aria-controls={settingsId}
+              onClick={() => setSettingsOpen((o) => !o)}
+              data-testid="game-settings"
+            >
+              SETTINGS
+            </button>
+          )}
           {p.help && (
             <button
               type="button"
@@ -111,6 +127,11 @@ export function GameShell(p: GameShellProps) {
           </button>
         </nav>
       </header>
+      {phone && settingsOpen && p.toolbar && (
+        <section id={settingsId} className="gs-settings" aria-label="Settings">
+          {p.toolbar}
+        </section>
+      )}
       {helpOpen && p.help && (
         <section id={helpId} className="gs-help" aria-label="How to play">
           {p.help}

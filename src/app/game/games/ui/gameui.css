@@ -865,8 +865,8 @@ button.gs-card.is-selected:hover {
     font-size: 13px;
   }
   .gs-cmds {
-    display: grid;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
+    display: flex;
+    flex-wrap: nowrap;
     gap: 4px;
     width: 100%;
   }
@@ -891,8 +891,9 @@ button.gs-card.is-selected:hover {
     letter-spacing: 0;
   }
   .gs-cmds > .gs-btn.gs-quiet {
-    grid-column: span 2;
-    padding-inline: 6px;
+    flex: 1 1 0;
+    padding-inline: 4px;
+    letter-spacing: 0;
     min-width: 0;
     width: 100%;
   }
@@ -993,4 +994,15 @@ button.gs-card.is-selected:hover {
 .gs-shell button.gs-card:focus-visible {
   outline: 2px dashed var(--gs-mine);
   outline-offset: 3px;
+}
+
+/* Phone: game settings (difficulty / mode) live behind SETTINGS. */
+.gs-settings {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-top: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--gs-rule);
+  background: var(--gs-panel);
 }
