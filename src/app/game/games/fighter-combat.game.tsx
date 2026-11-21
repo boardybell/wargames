@@ -1,357 +1,372 @@
-// FIGHTER COMBAT. A turn-based dogfight run by WOPR: you versus a hostile
-// fighter on a 7x7 tactical grid. Each turn you point your nose (heading),
-// then THROTTLE/CLIMB/DIVE to trade energy for position, or GUNS when the
-// bandit sits in your forward cone at range. The enemy AI turns into you,
-// manages its own energy, and fires when it owns the solution. Burn him down
-// to WIN, eat too many rounds to LOSE, run both of you dry to STALEMATE.
-import { useCallback, useEffect, useState } from 'react'
+// FIGHTER COMBAT. A simultaneous-turn dogfight on a 7x7 scope against a WOPR
+// bandit. Rules live in engines/fighter-combat.ts (energy gates, firing arc,
+// AI policies, end reasons); this module is presentation, records and input.
+// Design: docs/games-design-review.md §9.
+import { useState } from 'react'
 import type { GameEntry, GameProps } from './types'
+import { Action, GameReport, GameResult, GameShell, Panel, Segmented } from './ui/GameShell'
+import { GridBoard } from './ui/boards/GridBoard'
+import { cue, fmtWLD, useEventLog, useGameKeys, useGameRecords, type WLD } from './hooks'
+import {
+  ACTS,
+  COST,
+  DIRS,
+  DIR_NAME,
+  GRID,
+  GUN_RANGE,
+  MAX_ENERGY,
+  MAX_HP,
+  MAX_TURNS,
+  SCENARIOS,
+  canAct,
+  foePolicy,
+  gunDamage,
+  inArc,
+  range,
+  resolveTurn,
+  type Act,
+  type Difficulty,
+  type EndReason,
+  type Fighter,
+} from './engines/fighter-combat'
+import './styles/tactical.css'
 
-const GRID = 7
-// Eight compass headings, clockwise from north. Index is the heading.
-const DIRS = [
-  [0, -1],
-  [1, -1],
-  [1, 0],
-  [1, 1],
-  [0, 1],
-  [-1, 1],
-  [-1, 0],
-  [-1, -1],
-] as const
-const DIR_NAME = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'] as const
+const COLS = 'ABCDEFG'.split('')
+const cellName = (x: number, y: number): string => `${COLS[x]}${y + 1}`
 
-type Act = 'LEFT' | 'RIGHT' | 'THROTTLE' | 'CLIMB' | 'DIVE' | 'GUNS'
-type Outcome = 'WIN' | 'LOSE' | 'STALEMATE' | null
-
-interface Fighter {
-  x: number
-  y: number
-  hdg: number // index into DIRS
-  energy: number // airspeed/altitude pool, 0..10
-  hp: number // integrity, 0..6
+const ACT_INFO: Record<Act, { key: string; label: string; effect: string }> = {
+  LEFT: { key: 'A', label: 'BANK LEFT', effect: '45° L, MOVE 1' },
+  RIGHT: { key: 'D', label: 'BANK RIGHT', effect: '45° R, MOVE 1' },
+  THROTTLE: { key: 'W', label: 'THROTTLE', effect: 'MOVE 2' },
+  CLIMB: { key: 'C', label: 'CLIMB', effect: 'STAY, RECOVER' },
+  DIVE: { key: 'X', label: 'DIVE', effect: 'MOVE 3' },
+  GUNS: { key: 'F', label: 'GUNS', effect: 'STAY, FIRE' },
+}
+const costText = (a: Act): string => {
+  const d = COST[a].delta
+  return d > 0 ? `+${d} E` : `${d} E`
 }
 
-interface State {
-  you: Fighter
-  foe: Fighter
-  turn: number
-  outcome: Outcome
-  log: string[]
+const END_COPY: Record<EndReason, { outcome: 'win' | 'lose' | 'draw'; head: string; reason: string }> = {
+  splash: { outcome: 'win', head: 'SPLASH ONE', reason: 'BANDIT INTEGRITY REACHED ZERO.' },
+  'shot-down': { outcome: 'lose', head: 'AIRCRAFT DOWN', reason: 'YOUR INTEGRITY REACHED ZERO.' },
+  mutual: { outcome: 'draw', head: 'MUTUAL DESTRUCTION', reason: 'BOTH AIRCRAFT FIRED IN THE SAME TURN AND BOTH WENT DOWN.' },
+  time: { outcome: 'draw', head: 'TIME EXPIRED', reason: `${MAX_TURNS} TURNS FLOWN WITH BOTH AIRCRAFT STILL AIRBORNE.` },
 }
 
-const clamp = (n: number, lo: number, hi: number): number =>
-  n < lo ? lo : n > hi ? hi : n
-
-function initState(): State {
-  return {
-    you: { x: 1, y: 5, hdg: 1, energy: 6, hp: 6 },
-    foe: { x: 5, y: 1, hdg: 5, energy: 6, hp: 6 },
-    turn: 1,
-    outcome: null,
-    log: ['BANDIT ON RADAR. MERGE IN PROGRESS.'],
-  }
+interface Match {
+  readonly scenario: string
+  readonly you: Fighter
+  readonly foe: Fighter
+  /** Turn about to be flown (1-based). */
+  readonly turn: number
+  readonly end: EndReason | null
+  readonly session: string
+  readonly lastFoe: Act | null
 }
 
-// Angle off the attacker nose to the defender, in heading steps (0..4).
-function offBore(att: Fighter, def: Fighter): number {
-  const dx = def.x - att.x
-  const dy = def.y - att.y
-  if (dx === 0 && dy === 0) return 4
-  let best = 8
-  for (let h = 0; h < 8; h++) {
-    const [hx, hy] = DIRS[h]!
-    // dot-ish alignment: does this heading point at the target
-    const aligned = Math.sign(hx) === Math.sign(dx) && Math.sign(hy) === Math.sign(dy)
-    if (!aligned) continue
-    const diff = Math.min((h - att.hdg + 8) % 8, (att.hdg - h + 8) % 8)
-    if (diff < best) best = diff
-  }
-  if (best === 8) {
-    // fall back to pure heading delta toward target bearing
-    const bearing = bearingTo(att, def)
-    best = Math.min((bearing - att.hdg + 8) % 8, (att.hdg - bearing + 8) % 8)
-  }
-  return best
+const scenarioOf = (id: string) => SCENARIOS.find((s) => s.id === id) ?? SCENARIOS[0]!
+let sessionCounter = 0
+function newMatch(id: string): Match {
+  const sc = scenarioOf(id)
+  sessionCounter += 1
+  return { scenario: sc.id, you: sc.you, foe: sc.foe, turn: 1, end: null, session: `${sc.id}-${Date.now()}-${sessionCounter}`, lastFoe: null }
 }
 
-function bearingTo(from: Fighter, to: Fighter): number {
-  const dx = Math.sign(to.x - from.x)
-  const dy = Math.sign(to.y - from.y)
-  let best = 0
-  let bd = 99
-  for (let h = 0; h < 8; h++) {
-    const [hx, hy] = DIRS[h]!
-    const d = Math.abs(hx - dx) + Math.abs(hy - dy)
-    if (d < bd) {
-      bd = d
-      best = h
-    }
-  }
-  return best
-}
-
-const range = (a: Fighter, b: Fighter): number =>
-  Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y))
-
-// A clean gun solution: bandit in the forward cone (off-bore <=1) within 3.
-function hasGuns(att: Fighter, def: Fighter): boolean {
-  return offBore(att, def) <= 1 && range(att, def) <= 3 && range(att, def) >= 1
-}
-
-function advance(f: Fighter): Fighter {
-  const [dx, dy] = DIRS[f.hdg]!
-  return { ...f, x: clamp(f.x + dx, 0, GRID - 1), y: clamp(f.y + dy, 0, GRID - 1) }
-}
-
-// Apply one maneuver to a fighter, returning the new fighter. Pure.
-function maneuver(f: Fighter, act: Act): Fighter {
-  switch (act) {
-    case 'LEFT':
-      return advance({ ...f, hdg: (f.hdg + 7) % 8, energy: clamp(f.energy - 1, 0, 10) })
-    case 'RIGHT':
-      return advance({ ...f, hdg: (f.hdg + 1) % 8, energy: clamp(f.energy - 1, 0, 10) })
-    case 'THROTTLE':
-      // straight and fast: build energy, cover ground
-      return advance(advance({ ...f, energy: clamp(f.energy + 2, 0, 10) }))
-    case 'CLIMB':
-      return { ...f, energy: clamp(f.energy + 3, 0, 10) }
-    case 'DIVE':
-      // trade altitude for a hard repositioning jump along heading
-      return advance(advance(advance({ ...f, energy: clamp(f.energy - 2, 0, 10) })))
-    case 'GUNS':
-      return { ...f, energy: clamp(f.energy - 1, 0, 10) }
-  }
-}
-
-// The enemy picks a maneuver: get guns if it can, else turn into you and
-// keep energy honest.
-function foeAct(foe: Fighter, you: Fighter): Act {
-  if (hasGuns(foe, you) && foe.energy >= 1) return 'GUNS'
-  if (foe.energy <= 1) return 'CLIMB'
-  const want = bearingTo(foe, you)
-  if (foe.hdg === want) {
-    const r = range(foe, you)
-    return r > 3 ? 'THROTTLE' : 'DIVE'
-  }
-  // turn the short way toward the target bearing
-  const toLeft = (foe.hdg - want + 8) % 8
-  const toRight = (want - foe.hdg + 8) % 8
-  return toLeft <= toRight ? 'LEFT' : 'RIGHT'
-}
-
-function resolve(s: State, act: Act): State {
-  if (s.outcome) return s
-  const log: string[] = []
-  const fAct = foeAct(s.foe, s.you)
-
-  let you = maneuver(s.you, act)
-  let foe = maneuver(s.foe, fAct)
-
-  // Gunnery is checked AFTER both maneuver, from the post-move geometry.
-  let youHp = you.hp
-  let foeHp = foe.hp
-
-  if (act === 'GUNS') {
-    if (hasGuns(you, foe) && you.energy >= 0) {
-      const r = range(you, foe)
-      const dmg = r <= 1 ? 2 : 1
-      foeHp = clamp(foeHp - dmg, 0, 6)
-      log.push(`GUNS GUNS GUNS. HITS ON BANDIT (${dmg}).`)
-    } else {
-      log.push('TRIGGER DOWN. NO SOLUTION. ROUNDS WASTED.')
-    }
-  } else {
-    log.push(`YOU: ${act}. HDG ${DIR_NAME[you.hdg]}.`)
-  }
-
-  if (fAct === 'GUNS') {
-    if (hasGuns(foe, you)) {
-      const r = range(foe, you)
-      const dmg = r <= 1 ? 2 : 1
-      youHp = clamp(youHp - dmg, 0, 6)
-      log.push(`WARNING: BANDIT GUNS. YOU TAKE HITS (${dmg}).`)
-    } else {
-      log.push('BANDIT FIRES WIDE.')
-    }
-  } else {
-    log.push(`BANDIT: ${fAct}.`)
-  }
-
-  you = { ...you, hp: youHp }
-  foe = { ...foe, hp: foeHp }
-
-  let outcome: Outcome = null
-  if (foe.hp <= 0 && you.hp <= 0) outcome = 'STALEMATE'
-  else if (foe.hp <= 0) outcome = 'WIN'
-  else if (you.hp <= 0) outcome = 'LOSE'
-  else if (s.turn >= 24) outcome = 'STALEMATE'
-  else if (you.energy <= 0 && foe.energy <= 0) {
-    // both bled out of energy: no one can press the fight
-    outcome = 'STALEMATE'
-  }
-
-  if (outcome === 'WIN') log.push('SPLASH ONE. BANDIT DESTROYED.')
-  else if (outcome === 'LOSE') log.push('EJECT EJECT. YOU ARE DOWN.')
-  else if (outcome === 'STALEMATE') log.push('FUEL AND AMMO SPENT. FIGHT BROKEN OFF.')
-
-  return {
-    you,
-    foe,
-    turn: s.turn + 1,
-    outcome,
-    log: [...s.log.slice(-5), ...log],
-  }
-}
-
-function Bar({ label, value, max, amber }: { label: string; value: number; max: number; amber?: boolean }) {
-  const cells = Array.from({ length: max }, (_, i) => i < value)
+// ------------------------------------------------------------ scope graphics
+/** Original vector marker. Player: solid delta. Bandit: outlined swept wing. */
+function Aircraft({ f, side }: { f: Fighter; side: 'you' | 'foe' }) {
   return (
-    <div style={{ display: 'flex', gap: '0.6ch', alignItems: 'baseline' }}>
-      <span className="wg-dim" style={{ width: '8ch', display: 'inline-block' }}>
-        {label}
-      </span>
-      <span className={amber ? 'wg-amber' : undefined}>
-        {cells.map((on) => (on ? '█' : '░')).join('')}
-      </span>
-      <span className="wg-dim">
-        {value}/{max}
-      </span>
-    </div>
+    <svg className={`fc-craft fc-${side}`} viewBox="-10 -10 20 20" aria-hidden="true" style={{ transform: `rotate(${f.hdg * 45}deg)` }}>
+      {side === 'you' ? (
+        <path d="M0,-9 L7,7 L0,3.5 L-7,7 Z" />
+      ) : (
+        <path d="M0,-9 L2,-2 L8,5 L2,3 L0,8 L-2,3 L-8,5 L-2,-2 Z" />
+      )}
+    </svg>
   )
 }
 
-const ACTS: { act: Act; key: string; desc: string }[] = [
-  { act: 'LEFT', key: 'A', desc: 'BANK LEFT' },
-  { act: 'RIGHT', key: 'D', desc: 'BANK RIGHT' },
-  { act: 'THROTTLE', key: 'W', desc: 'THROTTLE UP (ENERGY ++)' },
-  { act: 'CLIMB', key: 'C', desc: 'CLIMB (ENERGY +++)' },
-  { act: 'DIVE', key: 'X', desc: 'DIVE (CLOSE FAST)' },
-  { act: 'GUNS', key: 'F', desc: 'GUNS' },
-]
+/** Nose line with range ticks at 1, 2 and 3 squares (the range guide). */
+function NoseLine({ f, side }: { f: Fighter; side: 'you' | 'foe' }) {
+  const [dx, dy] = DIRS[f.hdg]!
+  const cx = f.x + 0.5
+  const cy = f.y + 0.5
+  const tx = -dy
+  const ty = dx
+  const n = Math.hypot(tx, ty)
+  return (
+    <g className={`fc-nose fc-nose-${side}`}>
+      <line x1={cx} y1={cy} x2={cx + dx * GUN_RANGE} y2={cy + dy * GUN_RANGE} />
+      {[1, 2, 3].map((r) => (
+        <line
+          key={r}
+          x1={cx + dx * r - (tx / n) * 0.18}
+          y1={cy + dy * r - (ty / n) * 0.18}
+          x2={cx + dx * r + (tx / n) * 0.18}
+          y2={cy + dy * r + (ty / n) * 0.18}
+        />
+      ))}
+    </g>
+  )
+}
+
+function ScopeOverlay({ you, foe }: { you: Fighter; foe: Fighter }) {
+  return (
+    <svg className="tg-overlay" viewBox={`0 0 ${GRID} ${GRID}`} preserveAspectRatio="none" aria-hidden="true">
+      <NoseLine f={foe} side="foe" />
+      <NoseLine f={you} side="you" />
+    </svg>
+  )
+}
+
+function StatusRow({ name, f, tone, note }: { name: string; f: Fighter; tone: 'you' | 'foe'; note: string }) {
+  return (
+    <div className={`fc-row fc-row-${tone}`} data-testid={`fc-status-${tone}`}>
+      <span className="fc-row-name">{name}</span>
+      <span className="fc-row-item">
+        HDG <b>{DIR_NAME[f.hdg]}</b>
+      </span>
+      <span className="fc-row-item">
+        ENERGY <b>{f.energy}/{MAX_ENERGY}</b>
+      </span>
+      <span className="fc-row-item">
+        INTEG <b>{f.hp}/{MAX_HP}</b>
+      </span>
+      <span className="fc-row-note">{note}</span>
+    </div>
+  )
+}
 
 function FighterCombat({ onExit }: GameProps) {
-  const [s, setS] = useState<State>(initState)
+  const rec = useGameRecords('fighter-combat')
+  const log = useEventLog()
+  const [difficulty, setDifficulty] = useState<Difficulty>('veteran')
+  const [m, setM] = useState<Match>(() => newMatch(SCENARIOS[0]!.id))
+  const [announce, setAnnounce] = useState('')
+  const sc = scenarioOf(m.scenario)
+  const recKey = `${m.scenario}:${difficulty}`
 
-  const act = useCallback(
-    (a: Act) => setS((prev) => resolve(prev, a)),
-    [],
-  )
-  const reset = useCallback(() => setS(initState()), [])
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      const k = e.key.toLowerCase()
-      if (s.outcome) {
-        if (k === 'enter' || k === ' ') reset()
-        return
-      }
-      const found = ACTS.find((x) => x.key.toLowerCase() === k)
-      if (found) {
-        e.preventDefault()
-        act(found.act)
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [s.outcome, act, reset])
-
-  const youGuns = hasGuns(s.you, s.foe)
-  const foeGuns = hasGuns(s.foe, s.you)
-
-  const cell = (x: number, y: number): string => {
-    if (s.you.x === x && s.you.y === y && s.foe.x === x && s.foe.y === y) return '#'
-    if (s.you.x === x && s.you.y === y) return 'A'
-    if (s.foe.x === x && s.foe.y === y) return 'V'
-    return '·'
+  const restart = (scenario = m.scenario): void => {
+    setM(newMatch(scenario))
+    log.reset()
+    setAnnounce('')
   }
 
-  return (
-    <div className="wg-screen" data-testid="game-fighter-combat">
-      <div className="wg-out" style={{ gap: '0.3rem' }}>
-        <div className="wg-amber wg-big">FIGHTER COMBAT</div>
-        <div className="wg-dim">
-          WOPR AIR COMBAT SIMULATION. TURN {s.turn}. A = YOU. V = BANDIT.
-        </div>
+  const fly = (act: Act): void => {
+    if (m.end) return
+    const gate = canAct(m.you, act)
+    if (!gate.ok) {
+      cue.deny()
+      setAnnounce(`${ACT_INFO[act].label} UNAVAILABLE: ${gate.reason}`)
+      return
+    }
+    const fAct = foePolicy(difficulty, m.foe, m.you)
+    const r = resolveTurn(m.you, m.foe, act, fAct, m.turn)
+    const ev: { text: string; kind?: 'info' | 'good' | 'bad' | 'warn' }[] = [
+      { text: `T${m.turn}: YOU ${ACT_INFO[act].label} → ${cellName(r.you.x, r.you.y)} HDG ${DIR_NAME[r.you.hdg]} E${r.you.energy}.` },
+      { text: `BANDIT ${ACT_INFO[fAct].label} → ${cellName(r.foe.x, r.foe.y)} HDG ${DIR_NAME[r.foe.hdg]} E${r.foe.energy}.` },
+    ]
+    if (r.youFired)
+      ev.push(
+        r.youHit > 0
+          ? { text: `YOUR GUNS HIT AT RANGE ${range(r.you, r.foe)}: BANDIT INTEGRITY -${r.youHit}.`, kind: 'good' }
+          : { text: 'YOUR GUNS MISSED: BANDIT LEFT THE ARC DURING THE MANEUVER.', kind: 'warn' },
+      )
+    if (r.foeFired)
+      ev.push(
+        r.foeHit > 0
+          ? { text: `BANDIT GUNS HIT YOU AT RANGE ${range(r.you, r.foe)}: INTEGRITY -${r.foeHit}.`, kind: 'bad' }
+          : { text: 'BANDIT FIRED AND MISSED.', kind: 'info' },
+      )
+    if (r.end) {
+      const c = END_COPY[r.end]
+      ev.push({ text: `${c.head}. ${c.reason}`, kind: c.outcome === 'win' ? 'good' : c.outcome === 'lose' ? 'bad' : 'warn' })
+      rec.recordOnce(m.session, () => {
+        rec.tally(recKey, c.outcome)
+        if (c.outcome === 'win') rec.update<number>(`best:${recKey}`, (p) => (p === undefined ? r.turn : Math.min(p, r.turn)))
+      })
+      if (c.outcome === 'win') cue.win()
+      else if (c.outcome === 'lose') cue.lose()
+      else cue.draw()
+    } else if (r.youHit || r.foeHit) cue.hit()
+    else cue.select()
+    log.push(...ev)
+    setAnnounce(ev.map((e) => e.text).join(' '))
+    setM({ ...m, you: r.you, foe: r.foe, turn: m.turn + 1, end: r.end, lastFoe: fAct })
+  }
 
-        <div style={{ display: 'flex', gap: '2rem', flexWrap: 'wrap', marginTop: '0.4rem' }}>
-          <pre style={{ margin: 0, lineHeight: 1.2, letterSpacing: '0.4ch' }}>
-            {Array.from({ length: GRID }, (_, y) =>
-              Array.from({ length: GRID }, (_, x) => cell(x, y)).join(' '),
-            ).join('\n')}
-          </pre>
+  useGameKeys((k) => {
+    const key = k.toLowerCase()
+    if (m.end) return false
+    const act = ACTS.find((a) => ACT_INFO[a].key.toLowerCase() === key)
+    if (!act) return false
+    fly(act)
+    return true
+  })
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-            <div className="wg-dim">YOUR SHIP</div>
-            <Bar label="INTEG" value={s.you.hp} max={6} />
-            <Bar label="ENERGY" value={s.you.energy} max={10} />
-            <div>
-              HDG <span className="wg-amber">{DIR_NAME[s.you.hdg]}</span>{'  '}
-              RNG <span className="wg-amber">{range(s.you, s.foe)}</span>
-            </div>
-            <div className={youGuns ? 'wg-amber' : 'wg-dim'}>
-              {youGuns ? '>>> GUN SOLUTION: FIRE <<<' : 'NO GUN SOLUTION'}
-            </div>
-            <div className="wg-dim" style={{ marginTop: '0.4rem' }}>
-              BANDIT
-            </div>
-            <Bar label="INTEG" value={s.foe.hp} max={6} amber />
-            <Bar label="ENERGY" value={s.foe.energy} max={10} amber />
-            <div className={foeGuns ? 'wg-red' : 'wg-dim'}>
-              {foeGuns ? '!!! BANDIT HAS SOLUTION !!!' : 'BANDIT OFF YOUR SIX'}
-            </div>
-          </div>
-        </div>
+  const youArc = inArc(m.you, m.foe)
+  const foeArc = inArc(m.foe, m.you)
+  const rng = range(m.you, m.foe)
+  const record = rec.get<WLD | undefined>(recKey, undefined)
+  const best = rec.get<number | undefined>(`best:${recKey}`, undefined)
+  const turnShown = Math.min(m.end ? m.turn - 1 : m.turn, MAX_TURNS)
 
-        <div className="wg-log" style={{ height: '6rem', marginTop: '0.4rem' }}>
-          {s.log.slice(-6).map((l, i) => (
-            <span key={i} className={l.includes('WARNING') || l.includes('EJECT') ? 'crit' : undefined}>
-              {l}
-            </span>
-          ))}
-        </div>
+  const cellLabel = (x: number, y: number): string => {
+    const parts = [cellName(x, y)]
+    if (m.you.x === x && m.you.y === y) parts.push(`YOUR AIRCRAFT, HEADING ${DIR_NAME[m.you.hdg]}`)
+    if (m.foe.x === x && m.foe.y === y) parts.push(`BANDIT, HEADING ${DIR_NAME[m.foe.hdg]}`)
+    if (inArc(m.you, { x, y })) parts.push('IN YOUR ARC')
+    if (inArc(m.foe, { x, y })) parts.push('IN BANDIT ARC')
+    return parts.join(', ')
+  }
 
-        {!s.outcome ? (
-          <div className="wg-opts" data-testid="fc-controls">
-            {ACTS.map((a) => (
-              <button
-                key={a.act}
-                type="button"
-                className={a.act === 'GUNS' && youGuns ? 'wg-opt wg-amber' : 'wg-opt'}
-                onClick={() => act(a.act)}
-              >
-                &gt; [{a.key}] {a.desc}
-              </button>
-            ))}
-          </div>
-        ) : (
-          <div className="wg-opts">
-            <div
-              className={s.outcome === 'WIN' ? 'wg-big wg-amber' : s.outcome === 'LOSE' ? 'wg-big wg-red' : 'wg-big'}
+  const endCopy = m.end ? END_COPY[m.end] : null
+  const nextScenario = SCENARIOS[(SCENARIOS.findIndex((s) => s.id === m.scenario) + 1) % SCENARIOS.length]!
+
+  const side = endCopy ? (
+    <GameResult
+      outcome={endCopy.outcome}
+      headline={endCopy.head}
+      reason={endCopy.reason}
+      metrics={[
+        { label: 'TURNS', value: `${Math.min(m.turn - 1, MAX_TURNS)}/${MAX_TURNS}` },
+        { label: 'YOU', value: `${m.you.hp}/${MAX_HP}` },
+        { label: 'BANDIT', value: `${m.foe.hp}/${MAX_HP}` },
+      ]}
+      testId="fc-result"
+    >
+      <Action variant="primary" onClick={() => restart()} testId="fc-again" autoFocus>
+        RETRY {sc.name}
+      </Action>
+      <Action onClick={() => restart(nextScenario.id)}>NEXT: {nextScenario.name}</Action>
+    </GameResult>
+  ) : (
+    <Panel title="YOUR MANEUVER">
+      <div className="fc-bank" role="group" aria-label="Maneuvers" data-testid="fc-controls">
+        {ACTS.map((a) => {
+          const gate = canAct(m.you, a)
+          const info = ACT_INFO[a]
+          return (
+            <Action
+              key={a}
+              onClick={() => fly(a)}
+              disabled={!gate.ok}
+              reason={gate.reason}
+              variant={a === 'GUNS' && youArc ? 'primary' : a === 'CLIMB' && m.you.energy < 2 ? 'primary' : 'secondary'}
+              shortcut={info.key}
+              testId={`fc-act-${a.toLowerCase()}`}
+              label={`${info.label}: ${info.effect}, ${costText(a)}`}
             >
-              {s.outcome === 'WIN'
-                ? 'YOU WIN. BANDIT SPLASHED.'
-                : s.outcome === 'LOSE'
-                  ? 'YOU LOSE. AIRCRAFT DOWN.'
-                  : 'STALEMATE. BOTH FIGHTERS WINCHESTER.'}
-            </div>
-            <button type="button" className="wg-opt wg-amber" onClick={reset} autoFocus>
-              &gt; PLAY AGAIN
-            </button>
-          </div>
-        )}
-
-        <button
-          type="button"
-          className="wg-opt"
-          data-testid="game-exit"
-          onClick={onExit}
-          style={{ marginTop: '0.6rem' }}
-        >
-          &gt; EXIT TO GAMES
-        </button>
+              <span className="fc-act">
+                <span>{info.label}</span>
+                <small>
+                  {info.effect} · {costText(a)}
+                </small>
+              </span>
+            </Action>
+          )
+        })}
       </div>
-    </div>
+      <p className="tg-note">CLIMB IS ALWAYS AVAILABLE. THE BANDIT FOLLOWS THE SAME ENERGY RULES.</p>
+    </Panel>
+  )
+
+  return (
+    <GameShell
+      slug="fighter-combat"
+      title="FIGHTER COMBAT"
+      objective={`${sc.name}: ${sc.brief}`}
+      phase={m.end ? 'ENGAGEMENT OVER' : `TURN ${turnShown}/${MAX_TURNS} · CHOOSE A MANEUVER`}
+      phaseTone={m.end ? 'dim' : 'amber'}
+      metrics={[
+        { label: 'TURN', value: `${turnShown}/${MAX_TURNS}` },
+        { label: 'RANGE', value: rng },
+        { label: 'RECORD', value: fmtWLD(record), tone: 'dim', title: 'Wins-losses-draws in this scenario at this AI level' },
+        { label: 'BEST WIN', value: best ? `${best} TURNS` : '—', tone: 'dim' },
+      ]}
+      toolbar={
+        <>
+          <Segmented
+            label="SCENARIO"
+            value={m.scenario}
+            options={SCENARIOS.map((s) => ({ value: s.id, label: s.name }))}
+            onChange={(v) => restart(v)}
+            testId="fc-scenario"
+          />
+          <Segmented
+            label="AI"
+            value={difficulty}
+            options={[
+              { value: 'beginner', label: 'BEGINNER' },
+              { value: 'veteran', label: 'VETERAN' },
+            ]}
+            onChange={(v) => {
+              setDifficulty(v)
+              restart()
+            }}
+            testId="fc-difficulty"
+          />
+        </>
+      }
+      help={
+        <>
+          <p>BRING THE BANDIT&apos;S INTEGRITY FROM 6 TO 0 WITHIN {MAX_TURNS} TURNS. BOTH AIRCRAFT CHOOSE AT THE SAME TIME.</p>
+          <ul>
+            <li>ORDER OF A TURN: BOTH MANEUVERS RESOLVE, THEN GUNS ARE CHECKED FROM THE NEW POSITIONS.</li>
+            <li>FIRING ARC: WITHIN 45° OF THE NOSE AND RANGE 1–3 (SQUARES, DIAGONALS COUNT 1). RANGE 1 HITS FOR 2, RANGE 2–3 FOR 1.</li>
+            <li>GUNS HOLDS YOUR AIRCRAFT STEADY. TARGET IN ARC MEANS THE BANDIT IS IN YOUR ARC NOW; IT MAY MANEUVER OUT BEFORE THE ROUNDS ARRIVE.</li>
+            <li>ENERGY MUST BE AVAILABLE BEFORE THE ACTION: BANK 1 (−1), DIVE 2 (−2), GUNS 1 (−1). THROTTLE (+2) AND CLIMB (+3) ARE FREE, SO THERE IS NO ENERGY DEADLOCK.</li>
+            <li>ENDINGS: SPLASH (WIN), SHOT DOWN (LOSS), MUTUAL DESTRUCTION OR TIME EXPIRED (DRAW). THERE IS NO AMMUNITION LIMIT.</li>
+            <li>AIRCRAFT STOP AT THE SCOPE EDGE. BOTH AIRCRAFT MAY SHARE A SQUARE (RANGE 0: NO SHOT).</li>
+            <li>AI: BEGINNER TURNS INTO YOU AND FIRES WHEN ALIGNED. VETERAN SCORES EVERY LEGAL MOVE AGAINST YOUR POSSIBLE REPLIES FOR DAMAGE, EXPOSURE AND ENERGY. NEITHER SEES YOUR CHOICE.</li>
+            <li>SCENARIOS ARE FIXED STARTS, SO RECORDS COMPARE THE SAME PROBLEM. KEYS: A/D BANK · W THROTTLE · C CLIMB · X DIVE · F GUNS.</li>
+          </ul>
+        </>
+      }
+      onRestart={() => restart()}
+      inProgress={!m.end && m.turn > 1}
+      restartLabel="RESTART SCENARIO"
+      onExit={onExit}
+      side={side}
+      report={<GameReport events={log.events} />}
+      announce={announce}
+    >
+      <GridBoard
+        cols={GRID}
+        rows={GRID}
+        maxPx={600}
+        className="tg-board fc-scope"
+        ariaLabel="Tactical scope"
+        testId="fc-scope"
+        colLabels={COLS}
+        rowLabels={Array.from({ length: GRID }, (_, i) => String(i + 1))}
+        label={cellLabel}
+        state={(x, y) => ({
+          inRange: inArc(m.you, { x, y }),
+          terrain: inArc(m.foe, { x, y }) ? 'threat' : undefined,
+        })}
+        cell={(x, y) => (
+          <>
+            {m.foe.x === x && m.foe.y === y && <Aircraft f={m.foe} side="foe" />}
+            {m.you.x === x && m.you.y === y && <Aircraft f={m.you} side="you" />}
+          </>
+        )}
+        overlay={<ScopeOverlay you={m.you} foe={m.foe} />}
+      />
+      <div className="fc-status">
+        <StatusRow name="YOU" f={m.you} tone="you" note={youArc ? 'TARGET IN ARC' : 'NO TARGET IN ARC'} />
+        <StatusRow name="BANDIT" f={m.foe} tone="foe" note={foeArc ? 'HAS YOU IN ARC' : 'NO SHOT ON YOU'} />
+      </div>
+      {!m.end && (
+      <p className={`tg-note${youArc ? ' gs-tone-amber' : ''}`} data-testid="fc-solution">
+        {youArc
+          ? `TARGET IN ARC AT RANGE ${rng} (${gunDamage(m.you, m.foe)} DAMAGE IF IT STAYS). GUNS ARE CHECKED AFTER BOTH AIRCRAFT MANEUVER; THE BANDIT MAY LEAVE THE ARC.`
+          : 'BLUE SQUARES ARE YOUR ARC, RED-HATCHED SQUARES THE BANDIT ARC; TICKS ON EACH NOSE LINE MARK RANGE 1–3. GUNS ARE CHECKED AFTER BOTH AIRCRAFT MANEUVER.'}
+        {m.lastFoe ? ` LAST BANDIT ACTION: ${ACT_INFO[m.lastFoe].label}.` : ''}
+      </p>
+      )}
+    </GameShell>
   )
 }
 
