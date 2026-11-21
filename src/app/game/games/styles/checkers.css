@@ -1,0 +1,62 @@
+/* CHECKERS board sizing and piece details (shared kit: ui/gameui.css). */
+
+/* Fit 8 cells + a narrow coordinate gutter inside the 16px page margins:
+   ~43px cells at 390px wide, capped by maxPx on desktop. */
+.gs-board-wrap.ck-board {
+  --gs-cellsize: min(calc((100vw - 48px) / 8), calc(var(--board-max) / 8));
+}
+.ck-board .gs-coords-left {
+  width: 14px;
+}
+.ck-board .gs-coords-top {
+  margin-left: 14px;
+}
+.ck-board .gs-cell.is-light {
+  cursor: default;
+}
+
+.ck-board .gs-disc {
+  width: 60%;
+  height: 60%;
+  font-weight: bold;
+  letter-spacing: 0;
+}
+/* Kings: an original double ring plus the K. */
+.ck-board .gs-disc.ck-king.mine {
+  box-shadow:
+    inset 0 0 0 3px rgba(5, 10, 20, 0.45),
+    inset 0 0 0 5px #d9ecff,
+    0 0 0 2px rgba(108, 182, 255, 0.55);
+}
+.ck-board .gs-disc.ck-king.theirs {
+  box-shadow:
+    inset 0 0 0 3px rgba(5, 10, 20, 0.45),
+    inset 0 0 0 5px #ffd0d0,
+    0 0 0 2px rgba(255, 92, 92, 0.55);
+}
+/* A piece taken earlier in the jump still in progress. */
+.ck-ghost {
+  width: 46%;
+  height: 46%;
+  border-radius: 50%;
+  border: 2px dashed rgba(255, 92, 92, 0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 92, 92, 0.9);
+  font-size: calc(var(--gs-cellsize) * 0.3);
+  line-height: 1;
+}
+.ck-notice {
+  color: var(--gs-amber);
+  letter-spacing: 0.08em;
+}
+.ck-settings-note {
+  color: var(--gs-muted);
+  font-size: 14px;
+  text-shadow: none;
+}
+/* Squares already visited by the jump in progress. */
+.ck-board .gs-cell.is-path {
+  box-shadow: inset 0 0 0 2px rgba(255, 184, 77, 0.5);
+}

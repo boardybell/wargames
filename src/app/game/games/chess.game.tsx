@@ -1,429 +1,435 @@
-// CHESS. A real, self-contained game of chess on the WOPR terminal. You play
-// White; a greedy 1-ply AI plays Black. Full legal move generation for every
-// piece (pawns with two-step, diagonal captures, and auto-queen promotion;
-// sliding rook/bishop/queen with blocking; knight and king steps), illegal
-// moves are rejected, and the game detects check, checkmate, and stalemate by
-// generating the side-to-move's legal replies. Castling and en-passant are
-// omitted on purpose to keep the rules honest and small.
-import { useCallback, useMemo, useState } from 'react'
+// CHESS. Full FIDE rules against WOPR on the shared GridBoard. Rules and the
+// search live in engines/chess.ts (pure, perft-tested). This module owns the
+// selection, promotion picker, AI turn timing and presentation.
+//
+// Design: docs/games-design-review.md §7.
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { GameEntry, GameProps } from './types'
+import { Action, ActionBar, GameReport, GameResult, GameShell, Panel, Segmented } from './ui/GameShell'
+import { GridBoard, type CellState } from './ui/boards/GridBoard'
+import { cue, fmtWLD, useEventLog, useGameKeys, useGameRecords, useTimers, type WLD } from './hooks'
+import {
+  colorOf,
+  inCheck,
+  kingSquare,
+  legalMoves,
+  materialBalance,
+  newGame,
+  play,
+  search,
+  SEARCH,
+  sqName,
+  typeOf,
+  type Ending,
+  type Game,
+  type Move,
+  type PromoType,
+} from './engines/chess'
+import './styles/chess.css'
 
-// A board is 64 cells, index = row * 8 + col. Row 0 is Black's back rank (top),
-// row 7 is White's back rank (bottom). A piece is two chars: colour + type.
-// '' is an empty square.
-type Piece = string // e.g. 'wK', 'bP', or ''
-type Board = Piece[]
-type Color = 'w' | 'b'
+type Difficulty = 'beginner' | 'standard'
+const COLS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
+const ROWS = ['8', '7', '6', '5', '4', '3', '2', '1']
+const AI_DELAY = 220
+const TEXT = '︎' // force text (not emoji) presentation
 
-function glyph(p: Piece): string {
-  switch (p) {
-    case 'wK': return '♔'
-    case 'wQ': return '♕'
-    case 'wR': return '♖'
-    case 'wB': return '♗'
-    case 'wN': return '♘'
-    case 'wP': return '♙'
-    case 'bK': return '♚'
-    case 'bQ': return '♛'
-    case 'bR': return '♜'
-    case 'bB': return '♝'
-    case 'bN': return '♞'
-    case 'bP': return '♟'
-    default: return ''
+const GLYPH: Record<string, string> = {
+  wK: '♔', wQ: '♕', wR: '♖', wB: '♗', wN: '♘', wP: '♙',
+  bK: '♚', bQ: '♛', bR: '♜', bB: '♝', bN: '♞', bP: '♟',
+}
+const NAME: Record<string, string> = { K: 'KING', Q: 'QUEEN', R: 'ROOK', B: 'BISHOP', N: 'KNIGHT', P: 'PAWN' }
+const PROMOS: readonly PromoType[] = ['Q', 'R', 'B', 'N']
+const DIFF_OPTS = [
+  { value: 'beginner' as Difficulty, label: 'BEGINNER' },
+  { value: 'standard' as Difficulty, label: 'STANDARD' },
+]
+
+function reasonText(e: Ending, playerTurnAtEnd: boolean): string {
+  if (e.kind === 'checkmate')
+    return e.winner === 'w' ? "CHECKMATE. WOPR'S KING IS IN CHECK WITH NO ESCAPE." : 'CHECKMATE. YOUR KING IS IN CHECK WITH NO ESCAPE.'
+  switch (e.reason) {
+    case 'stalemate':
+      return `STALEMATE. ${playerTurnAtEnd ? 'YOU HAVE' : 'WOPR HAS'} NO LEGAL MOVE AND IS NOT IN CHECK.`
+    case 'insufficient':
+      return 'DEAD POSITION. NEITHER SIDE HAS THE MATERIAL TO CHECKMATE.'
+    case 'fifty':
+      return '50-MOVE RULE. 50 MOVES EACH WITHOUT A CAPTURE OR A PAWN MOVE.'
+    case 'repetition':
+      return 'THREEFOLD REPETITION. THE SAME POSITION OCCURRED THREE TIMES.'
   }
 }
 
-function value(type: string): number {
-  switch (type) {
-    case 'P': return 1
-    case 'N': return 3
-    case 'B': return 3
-    case 'R': return 5
-    case 'Q': return 9
-    case 'K': return 1000
-    default: return 0
+function Chess({ onExit }: GameProps) {
+  const rec = useGameRecords('chess')
+  const timers = useTimers()
+  const log = useEventLog()
+  const [diff, setDiff] = useState<Difficulty>('standard')
+  const [nextDiff, setNextDiff] = useState<Difficulty>('standard')
+  const [game, setGame] = useState<Game>(() => newGame())
+  const [gameNo, setGameNo] = useState(1)
+  const [sel, setSel] = useState<number | null>(null)
+  const [promo, setPromo] = useState<{ from: number; to: number } | null>(null)
+  const [notice, setNotice] = useState('')
+  const movesRef = useRef<HTMLOListElement>(null)
+
+  const over = game.ending !== null
+  const myTurn = !over && game.pos.turn === 'w'
+  const legal = useMemo(() => (myTurn ? legalMoves(game.pos) : []), [game.pos, myTurn])
+  const targets = useMemo(() => (sel === null ? [] : legal.filter((m) => m.from === sel)), [legal, sel])
+  const checkSq = inCheck(game.pos) ? kingSquare(game.pos.board, game.pos.turn) : -1
+  const last = game.moves.length ? game.moves[game.moves.length - 1]! : null
+
+  const start = (d: Difficulty): void => {
+    timers.clear()
+    setDiff(d)
+    setGame(newGame())
+    setGameNo((n) => n + 1)
+    setSel(null)
+    setPromo(null)
+    setNotice('')
+    log.reset()
   }
-}
-
-function initialBoard(): Board {
-  const b: Board = new Array(64).fill('')
-  const back = ['R', 'N', 'B', 'Q', 'K', 'B', 'N', 'R']
-  for (let c = 0; c < 8; c++) {
-    const t = back[c] ?? 'R'
-    b[0 * 8 + c] = 'b' + t
-    b[1 * 8 + c] = 'bP'
-    b[6 * 8 + c] = 'wP'
-    b[7 * 8 + c] = 'w' + t
+  const restart = (): void => start(nextDiff)
+  const changeDiff = (d: Difficulty): void => {
+    setNextDiff(d)
+    if (game.moves.length === 0) start(d)
   }
-  return b
-}
 
-const rowOf = (i: number): number => Math.floor(i / 8)
-const colOf = (i: number): number => i % 8
-const onBoard = (r: number, c: number): boolean => r >= 0 && r < 8 && c >= 0 && c < 8
-const colorOf = (p: Piece | undefined): Color | '' => (p ? (p.charAt(0) as Color) : '')
-const typeOf = (p: Piece | undefined): string => (p ? p.charAt(1) : '')
-
-interface Move {
-  readonly from: number
-  readonly to: number
-}
-
-// Pseudo-legal moves for the piece at `from` (ignores leaving your own king in
-// check; that is filtered later in legalMoves).
-function pseudoMoves(board: Board, from: number): number[] {
-  const p = board[from]
-  if (!p) return []
-  const me = colorOf(p)
-  const them: Color = me === 'w' ? 'b' : 'w'
-  const r = rowOf(from)
-  const c = colOf(from)
-  const out: number[] = []
-  const push = (rr: number, cc: number): void => {
-    if (onBoard(rr, cc)) out.push(rr * 8 + cc)
+  const describe = (g: Game, m: Move, who: 'YOU' | 'WOPR'): string => {
+    const played = g.moves[g.moves.length - 1]!
+    const cap = m.captured ? `, TAKES ${NAME[typeOf(m.captured)]}` : ''
+    const check = g.ending?.kind === 'checkmate' ? '. CHECKMATE' : inCheck(g.pos) ? '. CHECK' : ''
+    return `${who} ${played.san} (${sqName(m.from).toUpperCase()}-${sqName(m.to).toUpperCase()})${cap}${check}.`
   }
-  const type = typeOf(p)
 
-  if (type === 'P') {
-    const dir = me === 'w' ? -1 : 1 // White moves up (toward row 0)
-    const startRow = me === 'w' ? 6 : 1
-    // Forward one, if empty.
-    if (onBoard(r + dir, c) && board[(r + dir) * 8 + c] === '') {
-      push(r + dir, c)
-      // Forward two from the start row, if both squares empty.
-      if (r === startRow && board[(r + 2 * dir) * 8 + c] === '') push(r + 2 * dir, c)
+  const runAi = (g: Game): void => {
+    const r = search(g.pos, SEARCH[diff])
+    if (!r.move) return
+    const after = play(g, r.move)
+    setGame(after)
+    log.push({ text: describe(after, r.move, 'WOPR'), kind: r.move.captured || inCheck(after.pos) ? 'bad' : 'info' })
+    if (r.move.captured) cue.hit()
+    else cue.tick()
+    setNotice('')
+  }
+
+  const commit = (m: Move): void => {
+    const after = play(game, m)
+    setGame(after)
+    setSel(null)
+    setPromo(null)
+    setNotice('')
+    log.push({ text: describe(after, m, 'YOU'), kind: m.captured ? 'good' : 'info' })
+    if (m.captured) cue.hit()
+    else cue.select()
+    // Paint the player's move and THINKING first, then search.
+    if (!after.ending) timers.later(() => runAi(after), AI_DELAY)
+  }
+
+  const deny = (why: string): void => {
+    setNotice(why)
+    cue.deny()
+  }
+
+  const choosePromo = (t: PromoType): void => {
+    if (!promo) return
+    const m = legal.find((x) => x.from === promo.from && x.to === promo.to && x.promo === t)
+    if (m) commit(m)
+  }
+
+  const activate = (x: number, y: number): void => {
+    const i = y * 8 + x
+    if (over) return
+    if (!myTurn) return deny('WOPR IS THINKING')
+    if (promo) {
+      setPromo(null)
+      setNotice('PROMOTION CANCELLED')
+      return
     }
-    // Diagonal captures.
-    for (const dc of [-1, 1]) {
-      const rr = r + dir
-      const cc = c + dc
-      if (onBoard(rr, cc)) {
-        const t = board[rr * 8 + cc]
-        if (t && colorOf(t) === them) push(rr, cc)
+    if (colorOf(game.pos.board[i]) === 'w') {
+      if (sel === i) {
+        setSel(null)
+        setNotice('')
+        return
       }
+      if (legal.some((m) => m.from === i)) {
+        setSel(i)
+        setNotice('')
+        cue.select()
+      } else deny(inCheck(game.pos) ? 'THAT PIECE CANNOT ANSWER THE CHECK' : 'THAT PIECE HAS NO LEGAL MOVE')
+      return
     }
-    return out
+    if (sel === null) return deny('SELECT ONE OF YOUR BLUE PIECES')
+    const options = targets.filter((m) => m.to === i)
+    if (options.length === 0) return deny(inCheck(game.pos) ? 'ILLEGAL: YOUR KING MUST LEAVE CHECK' : 'NOT A LEGAL SQUARE FOR THAT PIECE')
+    if (options.length > 1) {
+      setPromo({ from: sel, to: i })
+      cue.select()
+      return
+    }
+    commit(options[0]!)
   }
 
-  if (type === 'N') {
-    const steps = [
-      [-2, -1], [-2, 1], [-1, -2], [-1, 2],
-      [1, -2], [1, 2], [2, -1], [2, 1],
+  const cancel = (): void => {
+    setPromo(null)
+    setSel(null)
+    setNotice('')
+  }
+
+  useGameKeys((k) => {
+    const key = k.toUpperCase()
+    if (promo && (PROMOS as readonly string[]).includes(key)) {
+      choosePromo(key as PromoType)
+      return true
+    }
+    if (k === 'Escape' && (sel !== null || promo)) {
+      cancel()
+      return true
+    }
+    if (key === 'N' && over) {
+      restart()
+      return true
+    }
+    return false
+  })
+
+  const ending = game.ending
+  const { recordOnce, tally } = rec
+  useEffect(() => {
+    if (!ending) return
+    recordOnce(`ch-${gameNo}`, () => {
+      const outcome = ending.kind === 'draw' ? 'draw' : ending.winner === 'w' ? 'win' : 'lose'
+      tally(diff, outcome)
+      if (outcome === 'win') cue.win()
+      else if (outcome === 'lose') cue.lose()
+      else cue.draw()
+    })
+  }, [ending, gameNo, recordOnce, tally, diff])
+
+  useEffect(() => {
+    const el = movesRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [game.moves.length])
+
+  // ---------------------------------------------------------------- board
+  const targetSet = useMemo(() => new Map(targets.map((m) => [m.to, m])), [targets])
+  const cellState = (x: number, y: number): CellState => {
+    const i = y * 8 + x
+    const t = targetSet.get(i)
+    return {
+      selected: sel === i || promo?.to === i,
+      legal: !!t && !t.captured,
+      capture: !!t && !!t.captured,
+      last: !!last && (last.from === i || last.to === i),
+      check: i === checkSq,
+    }
+  }
+  const cell = (x: number, y: number) => {
+    const p = game.pos.board[y * 8 + x]
+    if (!p) return null
+    return (
+      <span className={`gs-piece ${p[0] === 'w' ? 'mine' : 'theirs'}`} aria-hidden="true">
+        {GLYPH[p]}
+        {TEXT}
+      </span>
+    )
+  }
+  const label = (x: number, y: number): string => {
+    const i = y * 8 + x
+    const p = game.pos.board[i]
+    const st = cellState(x, y)
+    return [
+      sqName(i).toUpperCase(),
+      p ? `${p[0] === 'w' ? 'YOUR' : 'WOPR'} ${NAME[p[1]!]}` : 'EMPTY',
+      st.selected ? 'SELECTED' : '',
+      st.capture ? 'LEGAL CAPTURE' : st.legal ? 'LEGAL MOVE' : '',
+      st.check ? 'IN CHECK' : '',
+      st.last ? 'LAST MOVE' : '',
     ]
-    for (const s of steps) {
-      const rr = r + (s[0] ?? 0)
-      const cc = c + (s[1] ?? 0)
-      if (!onBoard(rr, cc)) continue
-      const t = board[rr * 8 + cc] ?? ''
-      if (!t || colorOf(t) === them) push(rr, cc)
-    }
-    return out
+      .filter(Boolean)
+      .join(', ')
   }
 
-  if (type === 'K') {
-    for (let dr = -1; dr <= 1; dr++) {
-      for (let dc = -1; dc <= 1; dc++) {
-        if (dr === 0 && dc === 0) continue
-        const rr = r + dr
-        const cc = c + dc
-        if (!onBoard(rr, cc)) continue
-        const t = board[rr * 8 + cc] ?? ''
-        if (!t || colorOf(t) === them) push(rr, cc)
-      }
-    }
-    return out
-  }
-
-  // Sliding pieces: rook, bishop, queen.
-  const dirs: number[][] = []
-  if (type === 'R' || type === 'Q') dirs.push([-1, 0], [1, 0], [0, -1], [0, 1])
-  if (type === 'B' || type === 'Q') dirs.push([-1, -1], [-1, 1], [1, -1], [1, 1])
-  for (const d of dirs) {
-    const dr = d[0] ?? 0
-    const dc = d[1] ?? 0
-    let rr = r + dr
-    let cc = c + dc
-    while (onBoard(rr, cc)) {
-      const t = board[rr * 8 + cc] ?? ''
-      if (!t) {
-        out.push(rr * 8 + cc)
-      } else {
-        if (colorOf(t) === them) out.push(rr * 8 + cc)
-        break // blocked by any piece
-      }
-      rr += dr
-      cc += dc
-    }
-  }
-  return out
-}
-
-function findKing(board: Board, color: Color): number {
-  for (let i = 0; i < 64; i++) if (board[i] === color + 'K') return i
-  return -1
-}
-
-// Is `color`'s king attacked, given this board?
-function inCheck(board: Board, color: Color): boolean {
-  const king = findKing(board, color)
-  if (king < 0) return true // king already captured counts as "in check"
-  const them: Color = color === 'w' ? 'b' : 'w'
-  for (let i = 0; i < 64; i++) {
-    if (colorOf(board[i]) === them) {
-      if (pseudoMoves(board, i).includes(king)) return true
-    }
-  }
-  return false
-}
-
-// Apply a move to a copy of the board, auto-promoting pawns to a queen.
-function applyMove(board: Board, m: Move): Board {
-  const next = board.slice()
-  const p = next[m.from] ?? ''
-  next[m.from] = ''
-  let moved: Piece = p
-  if (typeOf(p) === 'P') {
-    const destRow = rowOf(m.to)
-    if (destRow === 0 || destRow === 7) moved = colorOf(p) + 'Q'
-  }
-  next[m.to] = moved
-  return next
-}
-
-// Fully legal moves for `color`: pseudo-legal moves that do not leave your own
-// king in check.
-function legalMoves(board: Board, color: Color): Move[] {
-  const moves: Move[] = []
-  for (let i = 0; i < 64; i++) {
-    if (colorOf(board[i]) !== color) continue
-    for (const to of pseudoMoves(board, i)) {
-      const next = applyMove(board, { from: i, to })
-      if (!inCheck(next, color)) moves.push({ from: i, to })
-    }
-  }
-  return moves
-}
-
-function legalTargetsFrom(board: Board, from: number, color: Color): number[] {
-  if (colorOf(board[from]) !== color) return []
-  const out: number[] = []
-  for (const to of pseudoMoves(board, from)) {
-    const next = applyMove(board, { from, to })
-    if (!inCheck(next, color)) out.push(to)
-  }
-  return out
-}
-
-// The greedy AI: among all legal moves, take the one capturing the most
-// valuable piece; if nothing can be captured, play a random legal move.
-function aiMove(board: Board, color: Color): Move | null {
-  const moves = legalMoves(board, color)
-  if (moves.length === 0) return null
-  let best: Move[] = []
-  let bestGain = -1
-  for (const m of moves) {
-    const target = board[m.to]
-    const gain = target ? value(typeOf(target)) : 0
-    if (gain > bestGain) {
-      bestGain = gain
-      best = [m]
-    } else if (gain === bestGain) {
-      best.push(m)
-    }
-  }
-  return best[Math.floor(Math.random() * best.length)] ?? null
-}
-
-type Result = 'play' | 'white-wins' | 'black-wins' | 'draw'
-
-const FILES = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']
-const squareName = (i: number): string => (FILES[colOf(i)] ?? '?') + (8 - rowOf(i))
-
-const cellStyle = (dark: boolean, selected: boolean, target: boolean): React.CSSProperties => ({
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  aspectRatio: '1',
-  fontSize: 'clamp(1.1rem, 4.2vw, 2.1rem)',
-  lineHeight: 1,
-  cursor: 'pointer',
-  background: selected
-    ? 'rgba(255,184,77,0.35)'
-    : dark
-      ? 'rgba(108,182,255,0.10)'
-      : 'rgba(108,182,255,0.02)',
-  border: target ? '2px solid var(--amber)' : '1px solid rgba(108,182,255,0.18)',
-  color: 'var(--glyph)',
-  textShadow: '0 0 6px var(--glyph)',
-  padding: 0,
-  font: 'inherit',
-})
-
-function ChessGame({ onExit }: GameProps) {
-  const [board, setBoard] = useState<Board>(initialBoard)
-  const [turn, setTurn] = useState<Color>('w')
-  const [selected, setSelected] = useState<number | null>(null)
-  const [result, setResult] = useState<Result>('play')
-  const [status, setStatus] = useState<string>('YOUR MOVE. YOU ARE WHITE.')
-
-  const targets = useMemo(
-    () => (selected !== null ? legalTargetsFrom(board, selected, 'w') : []),
-    [board, selected],
-  )
-
-  const reset = useCallback((): void => {
-    setBoard(initialBoard())
-    setTurn('w')
-    setSelected(null)
-    setResult('play')
-    setStatus('YOUR MOVE. YOU ARE WHITE.')
-  }, [])
-
-  // After White moves, evaluate and (if the game continues) let Black reply.
-  const afterPlayerMove = useCallback((next: Board): void => {
-    // Did White just end the game?
-    const blackMoves = legalMoves(next, 'b')
-    if (blackMoves.length === 0) {
-      if (inCheck(next, 'b')) {
-        setBoard(next)
-        setResult('white-wins')
-        setStatus('CHECKMATE. YOU WIN.')
-      } else {
-        setBoard(next)
-        setResult('draw')
-        setStatus('STALEMATE. A STRANGE GAME: A DRAW.')
-      }
-      return
-    }
-
-    // Black (AI) replies.
-    const reply = aiMove(next, 'b')
-    if (!reply) {
-      setBoard(next)
-      setResult('draw')
-      setStatus('STALEMATE. A DRAW.')
-      return
-    }
-    const after = applyMove(next, reply)
-
-    const whiteMoves = legalMoves(after, 'w')
-    if (whiteMoves.length === 0) {
-      setBoard(after)
-      if (inCheck(after, 'w')) {
-        setResult('black-wins')
-        setStatus('CHECKMATE. WOPR WINS.')
-      } else {
-        setResult('draw')
-        setStatus('STALEMATE. A DRAW.')
-      }
-      setTurn('w')
-      return
-    }
-
-    setBoard(after)
-    setTurn('w')
-    const blackMovedTo = squareName(reply.to)
-    if (inCheck(after, 'w')) {
-      setStatus(`WOPR MOVES ${blackMovedTo}. YOU ARE IN CHECK.`)
-    } else {
-      setStatus(`WOPR MOVES ${blackMovedTo}. YOUR MOVE.`)
-    }
-  }, [])
-
-  const clickSquare = useCallback(
-    (i: number): void => {
-      if (result !== 'play' || turn !== 'w') return
-      const p = board[i]
-
-      // Selecting one of your own pieces.
-      if (colorOf(p) === 'w') {
-        setSelected(i)
-        return
-      }
-
-      // Attempting to move the selected piece to square i.
-      if (selected === null) return
-      const legal = legalTargetsFrom(board, selected, 'w')
-      if (!legal.includes(i)) {
-        // Illegal move: reject it honestly, keep selection.
-        setStatus('ILLEGAL MOVE. PICK A HIGHLIGHTED SQUARE.')
-        return
-      }
-      const next = applyMove(board, { from: selected, to: i })
-      setSelected(null)
-      setTurn('b')
-      setStatus('WOPR IS THINKING...')
-      // Let the "thinking" paint, then resolve Black.
-      setTimeout(() => afterPlayerMove(next), 260)
-    },
-    [board, selected, turn, result, afterPlayerMove],
-  )
-
-  const resultClass =
-    result === 'white-wins' ? 'wg-amber' : result === 'black-wins' ? 'wg-red' : 'wg-amber'
-
-  return (
-    <div className="wg-screen" data-testid="game-chess">
-      <div className="wg-out" style={{ overflow: 'auto' }}>
-        <div className="wg-dim" style={{ letterSpacing: '0.1em', marginBottom: '0.4rem' }}>
-          WOPR CHESS MODULE / YOU ARE WHITE
-        </div>
-        <div
-          className={result !== 'play' ? `wg-big ${resultClass}` : undefined}
-          style={{ marginBottom: '0.6rem', minHeight: '1.4em' }}
-          aria-live="polite"
-          data-testid="chess-status"
-        >
-          {status}
-        </div>
-
-        <div
-          role="grid"
-          aria-label="chess board"
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(8, 1fr)',
-            width: 'min(70vh, 92vw, 560px)',
-            maxWidth: '100%',
-            border: '1px solid rgba(108,182,255,0.4)',
-          }}
-        >
-          {board.map((p, i) => {
-            const dark = (rowOf(i) + colOf(i)) % 2 === 1
-            const isSel = selected === i
-            const isTarget = targets.includes(i)
-            return (
-              <button
-                key={i}
-                type="button"
-                role="gridcell"
-                aria-label={`${squareName(i)}${p ? ' ' + p : ' empty'}`}
-                data-testid={`sq-${squareName(i)}`}
-                onClick={() => clickSquare(i)}
-                style={cellStyle(dark, isSel, isTarget)}
-              >
-                {glyph(p)}
-              </button>
-            )
-          })}
-        </div>
-
-        <div className="wg-opts" style={{ marginTop: '0.9rem' }}>
-          {result !== 'play' && (
-            <button className="wg-opt" onClick={reset} autoFocus data-testid="chess-again">
-              &gt; PLAY AGAIN
+  const overlay = promo ? (
+    <div className="ch-promo" role="dialog" aria-label="Choose promotion piece" data-testid="chess-promo">
+      <div className="ch-promo-box">
+        <div className="ch-promo-title">PROMOTE PAWN TO</div>
+        <div className="ch-promo-row">
+          {PROMOS.map((t, k) => (
+            <button
+              key={t}
+              type="button"
+              className="gs-btn gs-secondary"
+              onClick={() => choosePromo(t)}
+              aria-label={`Promote to ${NAME[t]!.toLowerCase()}`}
+              aria-keyshortcuts={t}
+              autoFocus={k === 0}
+              data-testid={`chess-promo-${t}`}
+            >
+              <span className="ch-promo-glyph" aria-hidden="true">
+                {GLYPH[`w${t}`]}
+                {TEXT}
+              </span>
+              <span>{t}</span>
             </button>
-          )}
-          <button className="wg-opt wg-amber" onClick={onExit} data-testid="game-exit">
-            &gt; EXIT TO GAMES
-          </button>
+          ))}
         </div>
-        <div className="wg-hint">
-          CLICK A WHITE PIECE, THEN A HIGHLIGHTED SQUARE. PAWNS PROMOTE TO QUEEN.
-        </div>
+        <button type="button" className="gs-btn gs-quiet" onClick={cancel}>
+          CANCEL
+        </button>
       </div>
     </div>
+  ) : null
+
+  // ---------------------------------------------------------------- status
+  const checked = inCheck(game.pos)
+  const phase = over
+    ? 'GAME OVER'
+    : !myTurn
+      ? 'WOPR IS THINKING'
+      : promo
+        ? 'CHOOSE A PROMOTION PIECE'
+        : checked
+          ? sel === null
+            ? 'CHECK: SELECT A PIECE TO ANSWER IT'
+            : 'CHECK: SELECT A DESTINATION'
+          : sel === null
+            ? 'YOUR MOVE: SELECT A PIECE'
+            : 'SELECT A DESTINATION'
+  const record = rec.get<WLD | undefined>(diff, undefined)
+  const outcome = ending ? (ending.kind === 'draw' ? 'draw' : ending.winner === 'w' ? 'win' : 'lose') : null
+  const bal = materialBalance(game.pos.board)
+  const fullmove = game.pos.fullmove
+
+  const pairs: { n: number; w?: string; b?: string }[] = []
+  game.moves.forEach((m, k) => {
+    const n = Math.floor(k / 2) + 1
+    if (m.color === 'w') pairs.push({ n, w: m.san })
+    else if (pairs.length && pairs[pairs.length - 1]!.b === undefined && pairs[pairs.length - 1]!.n === n) pairs[pairs.length - 1]!.b = m.san
+    else pairs.push({ n, b: m.san })
+  })
+  const lastIdx = game.moves.length - 1
+
+  const decision = ending && outcome ? (
+    <GameResult
+      outcome={outcome}
+      headline={outcome === 'win' ? 'YOU WIN' : outcome === 'lose' ? 'WOPR WINS' : 'DRAW'}
+      reason={reasonText(ending, game.pos.turn === 'w')}
+      metrics={[
+        { label: 'MOVES', value: Math.ceil(game.moves.length / 2) },
+        { label: 'RECORD', value: fmtWLD(record) },
+      ]}
+      testId="chess-result"
+    >
+      <Action variant="primary" onClick={restart} shortcut="N" testId="chess-again">
+        NEW GAME
+      </Action>
+    </GameResult>
+  ) : (
+    <Panel title="YOUR DECISION">
+      <p className="ch-notice" data-testid="chess-status">
+        {notice || (promo ? 'PICK Q, R, B OR N. ESC CANCELS.' : sel === null ? 'TAP ONE OF YOUR BLUE PIECES.' : 'DOTS ARE MOVES. RINGS ARE CAPTURES.')}
+      </p>
+      <ActionBar label="Move actions">
+        <Action
+          onClick={cancel}
+          disabled={sel === null && !promo}
+          shortcut="Esc"
+          testId="chess-cancel"
+        >
+          CANCEL SELECTION
+        </Action>
+      </ActionBar>
+    </Panel>
+  )
+
+  return (
+    <GameShell
+      slug="chess"
+      title="CHESS"
+      objective="CHECKMATE WOPR'S KING. YOU ARE BLUE (WHITE), MOVING UP."
+      phase={phase}
+      phaseTone={over ? 'normal' : checked && myTurn ? 'red' : myTurn ? 'amber' : 'dim'}
+      metrics={[
+        { label: 'MOVE', value: fullmove },
+        {
+          label: 'MATERIAL',
+          value: bal === 0 ? 'EVEN' : bal > 0 ? `+${bal} YOU` : `+${-bal} WOPR`,
+          tone: bal < 0 ? 'red' : bal > 0 ? 'amber' : 'dim',
+        },
+        {
+          label: '50-MOVE',
+          value: `${Math.floor(game.pos.halfmove / 2)}/50`,
+          tone: game.pos.halfmove >= 80 ? 'amber' : 'dim',
+          title: 'Moves since the last capture or pawn move',
+        },
+        { label: 'RECORD', value: fmtWLD(record), tone: 'dim', title: `Wins-losses-draws against WOPR ${diff}` },
+      ]}
+      toolbar={<Segmented label="WOPR" value={nextDiff} options={DIFF_OPTS} onChange={changeDiff} testId="chess-difficulty" />}
+      help={
+        <>
+          <p>FULL CHESS RULES. YOU PLAY WHITE: BLUE OUTLINE PIECES AT THE BOTTOM. WOPR PLAYS BLACK: RED SOLID PIECES.</p>
+          <ul>
+            <li>SELECT A PIECE, THEN A MARKED SQUARE. DOTS ARE MOVES, RINGS ARE CAPTURES. AMBER SQUARES SHOW THE LAST MOVE; A RED SQUARE IS A KING IN CHECK.</li>
+            <li>CASTLING: MOVE THE KING TWO SQUARES TOWARD AN UNMOVED ROOK. NOT OUT OF, THROUGH, OR INTO CHECK.</li>
+            <li>EN PASSANT: A PAWN THAT JUST ADVANCED TWO SQUARES MAY BE CAPTURED AS IF IT HAD MOVED ONE, ON THE NEXT MOVE ONLY.</li>
+            <li>PROMOTION: A PAWN REACHING THE LAST RANK BECOMES A QUEEN, ROOK, BISHOP OR KNIGHT OF YOUR CHOICE.</li>
+            <li>CHECKMATE WINS. STALEMATE IS A DRAW. THESE DRAWS ARE APPLIED AUTOMATICALLY, NO CLAIM NEEDED: THREEFOLD REPETITION, 50 MOVES EACH WITHOUT A CAPTURE OR PAWN MOVE, AND DEAD POSITIONS WITH INSUFFICIENT MATERIAL (KING VS KING, KING AND ONE MINOR PIECE, BISHOPS ALL ON ONE SQUARE COLOUR). OTHER DEAD POSITIONS (FOR EXAMPLE LOCKED PAWN WALLS) ARE NOT DETECTED. NO CLOCK, NO RESIGNATION OR DRAW OFFERS.</li>
+            <li>WOPR BEGINNER SEARCHES 2 PLIES AND PICKS AMONG NEAR-BEST MOVES. WOPR STANDARD SEARCHES 3 PLIES PLUS CAPTURE SEQUENCES. BOTH WEIGH MATERIAL, MOBILITY, KING SAFETY AND PAWN PROMOTION, AND TREAT MATE AS FINAL. BOTH PLAY ONLY LEGAL MOVES; NEITHER SEES ANYTHING YOU CANNOT.</li>
+            <li>DIFFICULTY CHANGES AT ONCE BEFORE THE FIRST MOVE, OTHERWISE AT THE NEXT GAME.</li>
+            <li>KEYS: ARROWS MOVE ON THE BOARD, ENTER OR SPACE SELECTS, ESC CANCELS, Q R B N PICK A PROMOTION, N NEW GAME WHEN OVER.</li>
+          </ul>
+        </>
+      }
+      onRestart={restart}
+      inProgress={game.moves.length > 0 && !over}
+      restartLabel="NEW GAME"
+      onExit={() => {
+        timers.clear()
+        onExit()
+      }}
+      side={
+        <>
+          {decision}
+          {nextDiff !== diff && <p className="ch-settings-note">NEW DIFFICULTY APPLIES TO THE NEXT GAME.</p>}
+          <Panel title="MOVES">
+            {pairs.length === 0 ? (
+              <p className="gs-tone-dim">NO MOVES YET. WHITE MOVES FIRST.</p>
+            ) : (
+              <ol className="ch-moves" ref={movesRef} aria-label="Move list" data-testid="chess-moves">
+                {pairs.map((p, k) => (
+                  <li key={k}>
+                    <span className="ch-n">{p.n}.</span>
+                    <span className={2 * k === lastIdx ? 'ch-last' : undefined}>{p.w ?? '…'}</span>
+                    <span className={`ch-b${2 * k + 1 === lastIdx ? ' ch-last' : ''}`}>{p.b ?? ''}</span>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </Panel>
+        </>
+      }
+      report={<GameReport events={log.events} />}
+      announce={log.events.length ? log.events[log.events.length - 1]!.text : ''}
+    >
+      <GridBoard
+        cols={8}
+        rows={8}
+        cell={cell}
+        state={cellState}
+        label={label}
+        onActivate={activate}
+        colLabels={COLS}
+        rowLabels={ROWS}
+        ariaLabel="Chess board"
+        testId="chess-board"
+        maxPx={576}
+        checkered
+        className="ch-board"
+        overlay={overlay}
+      />
+    </GameShell>
   )
 }
 
-export const entry: GameEntry = { id: 'CHESS', Component: ChessGame }
+export const entry: GameEntry = { id: 'CHESS', Component: Chess }

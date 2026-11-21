@@ -1,367 +1,394 @@
-// CHECKERS. Real 8x8 American draughts on the WOPR terminal. You are the light
-// pieces (moving up the board); a simple AI plays the dark pieces. Diagonal
-// single steps, jumps over an adjacent enemy to an empty square, multi-jump
-// chains (you must continue a jump with the same piece if more jumps exist),
-// kinging on the far back rank, and kings moving both directions. The AI prefers
-// captures and otherwise plays a random legal move. You win when the opponent
-// has no pieces or no legal move. Rule note: captures are legal but not forced
-// (jumps are offered, never mandatory), kept this way so the rules stay honest.
-import { useCallback, useMemo, useState } from 'react'
+// CHECKERS. English/American draughts against WOPR on the shared GridBoard.
+// Rules live in engines/checkers.ts (pure, tested). This module owns the
+// hop-by-hop selection, the AI turn timing and the presentation.
+//
+// Design: docs/games-design-review.md §6.
+import { useEffect, useMemo, useState } from 'react'
 import type { GameEntry, GameProps } from './types'
+import { Action, ActionBar, GameReport, GameResult, GameShell, Panel, Segmented } from './ui/GameShell'
+import { GridBoard, type CellState } from './ui/boards/GridBoard'
+import { cue, fmtWLD, useEventLog, useGameKeys, useGameRecords, useTimers, type WLD } from './hooks'
+import {
+  captureRequired,
+  chooseMove,
+  colOf,
+  completed,
+  count,
+  describe,
+  isKing,
+  legalSequences,
+  newGame,
+  nextHops,
+  NO_PROGRESS_PLIES,
+  partialBoard,
+  play,
+  playable,
+  rowOf,
+  sideOf,
+  sq,
+  type Difficulty,
+  type Ending,
+  type GameState,
+  type Mode,
+  type Sequence,
+} from './engines/checkers'
+import './styles/checkers.css'
 
-// Board: 64 cells, index = row * 8 + col. Row 0 is the top (AI back rank), row 7
-// is the bottom (player back rank). Play happens only on dark squares, where
-// (row + col) is odd.
-type Cell = '' | 'w' | 'b' | 'W' | 'B' // '' empty; w/b men; W/B kings
-type Board = Cell[]
-type Side = 'w' | 'b'
+const COLS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
+const ROWS = ['8', '7', '6', '5', '4', '3', '2', '1']
+const AI_DELAY = 450
 
-const isPlayer = (c: Cell | undefined): boolean => c === 'w' || c === 'W'
-const isAI = (c: Cell | undefined): boolean => c === 'b' || c === 'B'
-const isKing = (c: Cell | undefined): boolean => c === 'W' || c === 'B'
-const sideOf = (c: Cell | undefined): Side | '' =>
-  c === 'w' || c === 'W' ? 'w' : c === 'b' || c === 'B' ? 'b' : ''
+const MODE_OPTS = [
+  { value: 'standard' as Mode, label: 'STANDARD' },
+  { value: 'casual' as Mode, label: 'CASUAL' },
+]
+const DIFF_OPTS = [
+  { value: 'beginner' as Difficulty, label: 'BEGINNER' },
+  { value: 'standard' as Difficulty, label: 'STANDARD' },
+]
 
-const rowOf = (i: number): number => Math.floor(i / 8)
-const colOf = (i: number): number => i % 8
-const onBoard = (r: number, c: number): boolean => r >= 0 && r < 8 && c >= 0 && c < 8
-const idx = (r: number, c: number): number => r * 8 + c
-const playable = (r: number, c: number): boolean => (r + c) % 2 === 1
+const REASON: Record<Ending['reason'], (youWon: boolean) => string> = {
+  'no-pieces': (w) => (w ? 'WOPR HAS NO PIECES LEFT.' : 'ALL YOUR PIECES ARE GONE.'),
+  'no-moves': (w) => (w ? 'WOPR HAS NO LEGAL MOVE.' : 'YOU HAVE NO LEGAL MOVE.'),
+  repetition: () => 'THE SAME POSITION OCCURRED THREE TIMES WITH THE SAME SIDE TO MOVE.',
+  'no-progress': () => `40 MOVES EACH WITHOUT A CAPTURE OR A MAN MOVING.`,
+}
 
-function initialBoard(): Board {
-  const b: Board = new Array(64).fill('')
-  for (let r = 0; r < 8; r++) {
-    for (let c = 0; c < 8; c++) {
-      if (!playable(r, c)) continue
-      if (r < 3) b[idx(r, c)] = 'b' // AI (dark) on top three rows
-      else if (r > 4) b[idx(r, c)] = 'w' // player (light) on bottom three rows
-    }
+function Checkers({ onExit }: GameProps) {
+  const rec = useGameRecords('checkers')
+  const timers = useTimers()
+  const log = useEventLog()
+  // Settings for the game in progress, and the ones chosen for the next game.
+  const [mode, setMode] = useState<Mode>('standard')
+  const [diff, setDiff] = useState<Difficulty>('standard')
+  const [nextMode, setNextMode] = useState<Mode>('standard')
+  const [nextDiff, setNextDiff] = useState<Difficulty>('standard')
+  const [game, setGame] = useState<GameState>(() => newGame('standard'))
+  const [gameNo, setGameNo] = useState(1)
+  /** Squares visited by the piece being moved; origin first. */
+  const [sel, setSel] = useState<number[] | null>(null)
+  const [notice, setNotice] = useState<string>('')
+
+  const over = game.ending !== null
+  const myTurn = !over && game.turn === 'w'
+  const seqs = useMemo(() => (myTurn ? legalSequences(game.board, 'w', mode) : []), [game.board, myTurn, mode])
+  const mustCapture = myTurn && captureRequired(game.board, 'w', mode)
+  const locked = sel !== null && sel.length > 1
+  const hops = useMemo(() => (sel ? nextHops(seqs, sel) : []), [seqs, sel])
+  const movable = useMemo(() => new Set(seqs.map((s) => s.path[0]!)), [seqs])
+  const shown = locked ? partialBoard(game.board, sel) : game.board
+  const recKey = `${mode}-${diff}`
+
+  const start = (m: Mode, d: Difficulty): void => {
+    timers.clear()
+    setMode(m)
+    setDiff(d)
+    setGame(newGame(m))
+    setGameNo((n) => n + 1)
+    setSel(null)
+    setNotice('')
+    log.reset()
   }
-  return b
-}
-
-// Diagonal directions a piece may move. Player men move up (toward row 0 =>
-// dr -1), AI men move down (dr +1). Kings move both.
-function directions(cell: Cell): number[][] {
-  if (isKing(cell)) return [[-1, -1], [-1, 1], [1, -1], [1, 1]]
-  if (isPlayer(cell)) return [[-1, -1], [-1, 1]]
-  return [[1, -1], [1, 1]]
-}
-
-interface Move {
-  readonly from: number
-  readonly to: number
-  readonly captured: number | null // index of jumped piece, or null for a step
-}
-
-// Promote a man that has reached the far back rank.
-function promoted(cell: Cell, to: number): Cell {
-  const r = rowOf(to)
-  if (cell === 'w' && r === 0) return 'W'
-  if (cell === 'b' && r === 7) return 'B'
-  return cell
-}
-
-function applyMove(board: Board, m: Move): Board {
-  const next = board.slice()
-  const cell = next[m.from] ?? ''
-  next[m.from] = ''
-  if (m.captured !== null) next[m.captured] = ''
-  next[m.to] = promoted(cell, m.to)
-  return next
-}
-
-// Jump moves available to the single piece at `from` (one hop each).
-function jumpsFrom(board: Board, from: number): Move[] {
-  const cell = board[from]
-  if (!cell) return []
-  const side = sideOf(cell)
-  const out: Move[] = []
-  for (const d of directions(cell)) {
-    const dr = d[0] ?? 0
-    const dc = d[1] ?? 0
-    const mr = rowOf(from) + dr
-    const mc = colOf(from) + dc
-    const lr = rowOf(from) + 2 * dr
-    const lc = colOf(from) + 2 * dc
-    if (!onBoard(lr, lc)) continue
-    const mid = board[idx(mr, mc)]
-    const land = board[idx(lr, lc)]
-    if (mid && sideOf(mid) !== side && land === '') {
-      out.push({ from, to: idx(lr, lc), captured: idx(mr, mc) })
-    }
+  const restart = (): void => start(nextMode, nextDiff)
+  // Settings apply at once before the first move, otherwise at the next game.
+  const changeMode = (m: Mode): void => {
+    setNextMode(m)
+    if (game.plies === 0) start(m, nextDiff)
   }
-  return out
-}
-
-// Simple (non-capturing) steps available to the piece at `from`.
-function stepsFrom(board: Board, from: number): Move[] {
-  const cell = board[from]
-  if (!cell) return []
-  const out: Move[] = []
-  for (const d of directions(cell)) {
-    const dr = d[0] ?? 0
-    const dc = d[1] ?? 0
-    const r = rowOf(from) + dr
-    const c = colOf(from) + dc
-    if (onBoard(r, c) && board[idx(r, c)] === '') out.push({ from, to: idx(r, c), captured: null })
+  const changeDiff = (d: Difficulty): void => {
+    setNextDiff(d)
+    if (game.plies === 0) start(nextMode, d)
   }
-  return out
-}
 
-// A full move sequence: a single step, or a chain of one or more jumps with the
-// same piece. Returned as a list of (board-after, path-of-indices) so multi-jump
-// chains resolve to one committed move.
-interface Sequence {
-  readonly board: Board
-  readonly path: number[] // squares visited, starting at the origin
-  readonly captures: number // how many pieces were taken
-}
-
-// Expand every maximal jump chain beginning at `from` on `board`.
-function jumpChains(board: Board, from: number, path: number[], caps: number): Sequence[] {
-  const jumps = jumpsFrom(board, from)
-  if (jumps.length === 0) {
-    return path.length > 1 ? [{ board, path, captures: caps }] : []
+  const runAi = (s: GameState): void => {
+    const choice = chooseMove(s, diff)
+    if (!choice) return
+    const after = play(s, choice)
+    setGame(after)
+    const caps = choice.captured.length
+    log.push({
+      text: `WOPR ${describe(choice)}${caps ? `, TAKES ${caps}` : ''}${choice.crowned ? ', CROWNED' : ''}.`,
+      kind: caps ? 'bad' : 'info',
+    })
+    if (caps) cue.hit()
+    else cue.tick()
+    setNotice('')
   }
-  const out: Sequence[] = []
-  for (const j of jumps) {
-    const nb = applyMove(board, j)
-    // If the man promoted mid-jump, standard rules stop the chain. Detect a
-    // kinging on this hop and stop there.
-    const becameKing = !isKing(board[from]) && isKing(nb[j.to])
-    if (becameKing) {
-      out.push({ board: nb, path: [...path, j.to], captures: caps + 1 })
-    } else {
-      out.push(...jumpChains(nb, j.to, [...path, j.to], caps + 1))
-    }
+
+  const commit = (seq: Sequence): void => {
+    const after = play(game, seq)
+    setGame(after)
+    setSel(null)
+    setNotice('')
+    const caps = seq.captured.length
+    log.push({
+      text: `YOU ${describe(seq)}${caps ? `, TAKE ${caps}` : ''}${seq.crowned ? ', CROWNED' : ''}.`,
+      kind: caps ? 'good' : 'info',
+    })
+    if (caps) cue.hit()
+    else cue.select()
+    if (!after.ending) timers.later(() => runAi(after), AI_DELAY)
   }
-  return out
-}
 
-// Every legal full move for `side`. If any jumps exist they are included
-// alongside steps (jumps are offered, not forced).
-function legalSequences(board: Board, side: Side): Sequence[] {
-  const out: Sequence[] = []
-  for (let i = 0; i < 64; i++) {
-    if (sideOf(board[i]) !== side) continue
-    // Jump chains.
-    out.push(...jumpChains(board, i, [i], 0))
-    // Simple steps.
-    for (const s of stepsFrom(board, i)) {
-      out.push({ board: applyMove(board, s), path: [i, s.to], captures: 0 })
-    }
-  }
-  return out
-}
-
-function countPieces(board: Board, side: Side): number {
-  let n = 0
-  for (const c of board) if (sideOf(c) === side) n++
-  return n
-}
-
-// The AI: prefer the sequence that captures the most pieces, else a random move.
-function aiChoose(board: Board): Sequence | null {
-  const seqs = legalSequences(board, 'b')
-  if (seqs.length === 0) return null
-  let best = -1
-  let pool: Sequence[] = []
-  for (const s of seqs) {
-    if (s.captures > best) {
-      best = s.captures
-      pool = [s]
-    } else if (s.captures === best) {
-      pool.push(s)
-    }
-  }
-  return pool[Math.floor(Math.random() * pool.length)] ?? null
-}
-
-const GLYPH: Record<Cell, string> = { '': '', w: '●', b: '●', W: '♚', B: '♚' }
-
-type Result = 'play' | 'player-wins' | 'ai-wins'
-
-const cellStyle = (
-  dark: boolean,
-  cell: Cell,
-  selected: boolean,
-  target: boolean,
-): React.CSSProperties => ({
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  aspectRatio: '1',
-  fontSize: 'clamp(1rem, 4vw, 2rem)',
-  lineHeight: 1,
-  cursor: dark ? 'pointer' : 'default',
-  background: selected
-    ? 'rgba(255,184,77,0.35)'
-    : dark
-      ? 'rgba(108,182,255,0.12)'
-      : 'rgba(108,182,255,0.02)',
-  border: target ? '2px solid var(--amber)' : '1px solid rgba(108,182,255,0.18)',
-  color: isAI(cell) ? 'var(--red)' : 'var(--glyph)',
-  textShadow: isAI(cell) ? '0 0 8px var(--red)' : '0 0 8px var(--glyph)',
-  padding: 0,
-  font: 'inherit',
-})
-
-function CheckersGame({ onExit }: GameProps) {
-  const [board, setBoard] = useState<Board>(initialBoard)
-  const [turn, setTurn] = useState<Side>('w')
-  const [selected, setSelected] = useState<number | null>(null)
-  const [result, setResult] = useState<Result>('play')
-  const [status, setStatus] = useState<string>('YOUR MOVE. YOU ARE THE BLUE DISCS.')
-
-  // Legal full moves for the player, grouped by origin square so a click knows
-  // where a selected piece may land.
-  const playerSeqs = useMemo(() => legalSequences(board, 'w'), [board])
-  const targetsFor = useCallback(
-    (from: number): number[] =>
-      playerSeqs.filter((s) => s.path[0] === from).map((s) => s.path[s.path.length - 1]!),
-    [playerSeqs],
-  )
-  const targets = selected !== null ? targetsFor(selected) : []
-
-  const reset = useCallback((): void => {
-    setBoard(initialBoard())
-    setTurn('w')
-    setSelected(null)
-    setResult('play')
-    setStatus('YOUR MOVE. YOU ARE THE BLUE DISCS.')
-  }, [])
-
-  // Resolve the AI reply and the end conditions after the player commits a move.
-  const afterPlayerMove = useCallback((next: Board): void => {
-    // Did the player leave the AI with nothing?
-    if (countPieces(next, 'b') === 0 || legalSequences(next, 'b').length === 0) {
-      setBoard(next)
-      setResult('player-wins')
-      setStatus('WOPR HAS NO MOVES. YOU WIN.')
+  const advance = (path: number[]): void => {
+    const done = completed(seqs, path)
+    if (done) {
+      commit(done)
       return
     }
+    setSel(path)
+    if (path.length > 1) {
+      cue.hit()
+      setNotice('CONTINUE JUMP')
+    } else cue.select()
+  }
 
-    const choice = aiChoose(next)
-    if (!choice) {
-      setBoard(next)
-      setResult('player-wins')
-      setStatus('WOPR HAS NO MOVES. YOU WIN.')
+  const deny = (why: string): void => {
+    setNotice(why)
+    cue.deny()
+  }
+
+  const activate = (x: number, y: number): void => {
+    const i = y * 8 + x
+    if (over) return
+    if (!myTurn) return deny('WOPR IS MOVING')
+    if (!playable(i)) return deny('PIECES USE THE DARK SQUARES ONLY')
+    if (locked) {
+      if (hops.includes(i)) advance([...sel, i])
+      else deny('CONTINUE JUMP: THE MOVING PIECE IS LOCKED')
       return
     }
-    const after = choice.board
-
-    // Did the AI just win?
-    if (countPieces(after, 'w') === 0 || legalSequences(after, 'w').length === 0) {
-      setBoard(after)
-      setResult('ai-wins')
-      setStatus(
-        countPieces(after, 'w') === 0 ? 'ALL YOUR DISCS ARE GONE. WOPR WINS.' : 'YOU HAVE NO MOVES. WOPR WINS.',
-      )
-      setTurn('w')
-      return
-    }
-
-    setBoard(after)
-    setTurn('w')
-    setStatus(choice.captures > 0 ? `WOPR JUMPS AND TAKES ${choice.captures}. YOUR MOVE.` : 'WOPR MOVES. YOUR MOVE.')
-  }, [])
-
-  const clickCell = useCallback(
-    (i: number): void => {
-      if (result !== 'play' || turn !== 'w') return
-      const cell = board[i]
-
-      // Select one of your own pieces.
-      if (isPlayer(cell)) {
-        setSelected(i)
+    if (sideOf(game.board[i]) === 'w') {
+      if (sel && sel[0] === i) {
+        setSel(null)
+        setNotice('')
         return
       }
+      if (movable.has(i)) advance([i])
+      else deny(mustCapture ? 'CAPTURE REQUIRED: PICK A RINGED PIECE' : 'THAT PIECE HAS NO LEGAL MOVE')
+      return
+    }
+    if (sel && hops.includes(i)) advance([...sel, i])
+    else if (sel) deny('NOT A LEGAL LANDING SQUARE')
+    else deny('SELECT ONE OF YOUR BLUE PIECES')
+  }
 
-      if (selected === null) return
-      // Find the committed sequence from `selected` landing on `i`.
-      const seq = playerSeqs.find(
-        (s) => s.path[0] === selected && s.path[s.path.length - 1] === i,
+  const cancel = (): void => {
+    if (!sel || locked) return
+    setSel(null)
+    setNotice('')
+  }
+
+  useGameKeys((k) => {
+    if (k === 'Escape' && sel && !locked) {
+      cancel()
+      return true
+    }
+    if ((k === 'n' || k === 'N') && over) {
+      restart()
+      return true
+    }
+    return false
+  })
+
+  // Record a finished game once and sound the result.
+  const ending = game.ending
+  const { recordOnce, tally } = rec
+  useEffect(() => {
+    if (!ending) return
+    recordOnce(`ck-${gameNo}`, () => {
+      const outcome = ending.winner === 'draw' ? 'draw' : ending.winner === 'w' ? 'win' : 'lose'
+      tally(recKey, outcome)
+      if (outcome === 'win') cue.win()
+      else if (outcome === 'lose') cue.lose()
+      else cue.draw()
+    })
+  }, [ending, gameNo, recordOnce, tally, recKey])
+
+  // ---------------------------------------------------------------- board
+  const ghosts = useMemo(() => {
+    if (!locked) return new Set<number>()
+    const out = new Set<number>()
+    for (let k = 1; k < sel.length; k++) {
+      const a = sel[k - 1]!
+      const b = sel[k]!
+      out.add(((rowOf(a) + rowOf(b)) / 2) * 8 + (colOf(a) + colOf(b)) / 2)
+    }
+    return out
+  }, [locked, sel])
+  const lastSet = useMemo(() => new Set(game.last ? [game.last.path[0]!, game.last.path[game.last.path.length - 1]!] : []), [game.last])
+  const cur = sel ? sel[sel.length - 1]! : null
+
+  const cellState = (x: number, y: number): CellState => {
+    const i = y * 8 + x
+    const target = hops.includes(i)
+    const isJump = target && cur !== null && Math.abs(rowOf(i) - rowOf(cur)) === 2
+    return {
+      dark: playable(i),
+      selected: cur === i,
+      legal: target && !isJump,
+      capture: isJump,
+      last: lastSet.has(i),
+      path: locked && sel.includes(i) && i !== cur,
+      inRange: mustCapture && !sel && movable.has(i),
+    }
+  }
+  const cell = (x: number, y: number) => {
+    const i = y * 8 + x
+    const c = shown[i]
+    if (c) {
+      const mine = sideOf(c) === 'w'
+      return (
+        <span className={`gs-disc ${mine ? 'mine' : 'theirs'}${isKing(c) ? ' ck-king' : ''}`} aria-hidden="true">
+          {isKing(c) ? 'K' : ''}
+        </span>
       )
-      if (!seq) {
-        setStatus('ILLEGAL MOVE. PICK A HIGHLIGHTED SQUARE.')
-        return
-      }
-      setSelected(null)
-      setTurn('b')
-      setStatus('WOPR IS THINKING...')
-      setTimeout(() => afterPlayerMove(seq.board), 240)
-    },
-    [board, selected, turn, result, playerSeqs, afterPlayerMove],
-  )
+    }
+    if (ghosts.has(i)) return <span className="ck-ghost" aria-hidden="true">X</span>
+    return null
+  }
+  const label = (x: number, y: number): string => {
+    const i = y * 8 + x
+    const c = shown[i]
+    const who = c ? `${sideOf(c) === 'w' ? 'YOUR' : 'WOPR'} ${isKing(c) ? 'KING' : 'MAN'}` : ghosts.has(i) ? 'CAPTURED' : 'EMPTY'
+    const st = cellState(x, y)
+    const extra = [
+      st.selected ? 'SELECTED' : '',
+      st.capture ? 'JUMP LANDING' : st.legal ? 'LEGAL MOVE' : '',
+      st.inRange ? 'MUST CAPTURE' : '',
+      st.last ? 'LAST MOVE' : '',
+    ].filter(Boolean)
+    return [sq(i).toUpperCase(), who, ...extra].join(', ')
+  }
 
-  const playerCount = countPieces(board, 'w')
-  const aiCount = countPieces(board, 'b')
-  const resultClass = result === 'player-wins' ? 'wg-amber' : 'wg-red'
+  // ---------------------------------------------------------------- status
+  const me = count(game.board, 'w')
+  const ai = count(game.board, 'b')
+  const phase = over
+    ? 'GAME OVER'
+    : !myTurn
+      ? 'WOPR IS MOVING'
+      : locked
+        ? 'CONTINUE JUMP'
+        : mustCapture
+          ? sel
+            ? 'CAPTURE REQUIRED: PICK A LANDING SQUARE'
+            : 'CAPTURE REQUIRED: SELECT A RINGED PIECE'
+          : sel
+            ? 'SELECT A DESTINATION'
+            : 'YOUR MOVE: SELECT A PIECE'
+  const record = rec.get<WLD | undefined>(recKey, undefined)
+  const outcome = ending ? (ending.winner === 'draw' ? 'draw' : ending.winner === 'w' ? 'win' : 'lose') : null
+  const settingsPending = nextMode !== mode || nextDiff !== diff
+
+  const side = ending && outcome ? (
+    <GameResult
+      outcome={outcome}
+      headline={outcome === 'win' ? 'YOU WIN' : outcome === 'lose' ? 'WOPR WINS' : 'DRAW'}
+      reason={REASON[ending.reason](outcome === 'win')}
+      metrics={[
+        { label: 'MOVES', value: Math.ceil(game.plies / 2) },
+        { label: 'RECORD', value: fmtWLD(record) },
+      ]}
+      testId="checkers-result"
+    >
+      <Action variant="primary" onClick={restart} shortcut="N" testId="checkers-again">
+        NEW GAME
+      </Action>
+    </GameResult>
+  ) : (
+    <Panel title="YOUR DECISION">
+      <p className="ck-notice" data-testid="checkers-status">
+        {notice || (locked ? 'CONTINUE JUMP' : mustCapture ? 'CAPTURE REQUIRED' : sel ? 'DOTS ARE STEPS. RINGS ARE JUMP LANDINGS.' : 'TAP ONE OF YOUR BLUE PIECES.')}
+      </p>
+      {mustCapture && !locked && <p className="gs-tone-dim">STANDARD RULES: A CAPTURE IS AVAILABLE, SO YOU MUST TAKE.</p>}
+      {locked && <p className="gs-tone-dim">MORE JUMPS ARE AVAILABLE. THE SAME PIECE MUST KEEP JUMPING.</p>}
+      <ActionBar label="Move actions">
+        <Action
+          onClick={cancel}
+          disabled={!sel || locked}
+          reason={locked ? 'A STARTED JUMP MUST BE COMPLETED' : undefined}
+          shortcut="Esc"
+          testId="checkers-cancel"
+        >
+          CANCEL SELECTION
+        </Action>
+      </ActionBar>
+    </Panel>
+  )
 
   return (
-    <div className="wg-screen" data-testid="game-checkers">
-      <div className="wg-out" style={{ overflow: 'auto' }}>
-        <div className="wg-dim" style={{ letterSpacing: '0.1em', marginBottom: '0.4rem' }}>
-          WOPR DRAUGHTS MODULE / YOU: {playerCount} &nbsp; WOPR: {aiCount}
-        </div>
-        <div
-          className={result !== 'play' ? `wg-big ${resultClass}` : undefined}
-          style={{ marginBottom: '0.6rem', minHeight: '1.4em' }}
-          aria-live="polite"
-          data-testid="checkers-status"
-        >
-          {status}
-        </div>
-
-        <div
-          role="grid"
-          aria-label="checkers board"
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(8, 1fr)',
-            width: 'min(70vh, 92vw, 560px)',
-            maxWidth: '100%',
-            border: '1px solid rgba(108,182,255,0.4)',
-          }}
-        >
-          {board.map((cell, i) => {
-            const dark = playable(rowOf(i), colOf(i))
-            const isSel = selected === i
-            const isTarget = targets.includes(i)
-            return (
-              <button
-                key={i}
-                type="button"
-                role="gridcell"
-                aria-label={`row ${rowOf(i)} col ${colOf(i)}${cell ? ' ' + cell : ' empty'}`}
-                data-testid={`cell-${i}`}
-                onClick={() => clickCell(i)}
-                disabled={!dark}
-                style={cellStyle(dark, cell, isSel, isTarget)}
-              >
-                {GLYPH[cell]}
-              </button>
-            )
-          })}
-        </div>
-
-        <div className="wg-opts" style={{ marginTop: '0.9rem' }}>
-          {result !== 'play' && (
-            <button className="wg-opt" onClick={reset} autoFocus data-testid="checkers-again">
-              &gt; PLAY AGAIN
-            </button>
-          )}
-          <button className="wg-opt wg-amber" onClick={onExit} data-testid="game-exit">
-            &gt; EXIT TO GAMES
-          </button>
-        </div>
-        <div className="wg-hint">
-          CLICK A BLUE DISC, THEN A HIGHLIGHTED SQUARE. JUMPS CHAIN. REACH THE TOP ROW TO CROWN A KING.
-        </div>
-      </div>
-    </div>
+    <GameShell
+      slug="checkers"
+      title="CHECKERS"
+      objective="TAKE OR BLOCK EVERY WOPR PIECE. YOU ARE BLUE, MOVING UP."
+      phase={phase}
+      phaseTone={over ? 'normal' : myTurn ? 'amber' : 'dim'}
+      metrics={[
+        { label: 'YOU', value: `${me.total}${me.kings ? ` · ${me.kings}K` : ''}`, title: `${me.men} men, ${me.kings} kings` },
+        { label: 'WOPR', value: `${ai.total}${ai.kings ? ` · ${ai.kings}K` : ''}`, tone: 'red', title: `${ai.men} men, ${ai.kings} kings` },
+        {
+          label: 'NO PROGRESS',
+          value: `${game.quiet}/${NO_PROGRESS_PLIES}`,
+          tone: game.quiet >= NO_PROGRESS_PLIES - 20 ? 'amber' : 'dim',
+          title: 'Plies since the last capture or man move',
+        },
+        { label: 'RECORD', value: fmtWLD(record), tone: 'dim', title: `Wins-losses-draws, ${mode} rules, WOPR ${diff}` },
+      ]}
+      toolbar={
+        <>
+          <Segmented label="RULES" value={nextMode} options={MODE_OPTS} onChange={changeMode} testId="checkers-mode" />
+          <Segmented label="WOPR" value={nextDiff} options={DIFF_OPTS} onChange={changeDiff} testId="checkers-difficulty" />
+        </>
+      }
+      help={
+        <>
+          <p>ENGLISH / AMERICAN DRAUGHTS ON AN 8 BY 8 BOARD. YOU PLAY BLUE (SOLID RING) FROM THE BOTTOM; WOPR PLAYS RED (DASHED RING).</p>
+          <ul>
+            <li>MEN MOVE ONE SQUARE DIAGONALLY FORWARD. KINGS (DOUBLE RING, K) MOVE ONE SQUARE DIAGONALLY EITHER WAY.</li>
+            <li>JUMP AN ADJACENT ENEMY PIECE ONTO THE EMPTY SQUARE BEYOND IT TO CAPTURE. IF THE SAME PIECE CAN JUMP AGAIN IT MUST: SELECT EACH LANDING SQUARE IN TURN (CONTINUE JUMP). A KING MAY FINISH A CIRCUIT ON ITS STARTING SQUARE.</li>
+            <li>A MAN REACHING THE FAR ROW IS CROWNED AND THE MOVE ENDS THERE.</li>
+            <li>STANDARD RULES: CAPTURING IS COMPULSORY. WHEN ANY CAPTURE EXISTS YOU MUST TAKE ONE, BUT YOU MAY CHOOSE WHICH BRANCH, NOT NECESSARILY THE LONGEST.</li>
+            <li>CASUAL RULES: CAPTURES ARE OPTIONAL. A STARTED JUMP MUST STILL BE COMPLETED.</li>
+            <li>YOU WIN WHEN WOPR HAS NO PIECES OR NO LEGAL MOVE. DRAW BY THREEFOLD REPETITION (SAME POSITION, SAME SIDE TO MOVE) OR AFTER 40 MOVES EACH WITHOUT A CAPTURE OR A MAN MOVING. BOTH DRAWS ARE APPLIED AUTOMATICALLY.</li>
+            <li>WOPR BEGINNER TAKES THE MOST PIECES IT CAN, OTHERWISE MOVES AT RANDOM. WOPR STANDARD LOOKS TWO PLIES AHEAD: MATERIAL, KINGS, DISTANCE TO CROWNING, AND YOUR BEST REPLY.</li>
+            <li>SETTINGS CHANGE AT ONCE BEFORE THE FIRST MOVE, OTHERWISE AT THE NEXT GAME. NO OPENING BALLOT.</li>
+            <li>KEYS: ARROWS MOVE ON THE BOARD, ENTER OR SPACE SELECTS, ESC CANCELS, N NEW GAME WHEN OVER.</li>
+          </ul>
+        </>
+      }
+      onRestart={restart}
+      inProgress={game.plies > 0 && !over}
+      restartLabel="NEW GAME"
+      onExit={() => {
+        timers.clear()
+        onExit()
+      }}
+      side={
+        <>
+          {side}
+          {settingsPending && <p className="ck-settings-note">NEW SETTINGS APPLY TO THE NEXT GAME.</p>}
+        </>
+      }
+      report={<GameReport events={log.events} />}
+      announce={log.events.length ? log.events[log.events.length - 1]!.text : ''}
+    >
+      <GridBoard
+        cols={8}
+        rows={8}
+        cell={cell}
+        state={cellState}
+        label={label}
+        onActivate={activate}
+        colLabels={COLS}
+        rowLabels={ROWS}
+        ariaLabel="Checkers board"
+        testId="checkers-board"
+        maxPx={576}
+        className="ck-board"
+      />
+    </GameShell>
   )
 }
 
-export const entry: GameEntry = { id: 'CHECKERS', Component: CheckersGame }
+export const entry: GameEntry = { id: 'CHECKERS', Component: Checkers }

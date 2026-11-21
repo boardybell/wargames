@@ -1,0 +1,125 @@
+/* CHESS board sizing, pieces, promotion picker and move list
+   (shared kit: ui/gameui.css). */
+
+/* ~43px cells at 390px wide, capped by maxPx on desktop. */
+.gs-board-wrap.ch-board {
+  --gs-cellsize: min(calc((100vw - 48px) / 8), calc(var(--board-max) / 8));
+}
+.ch-board .gs-coords-left {
+  width: 14px;
+}
+.ch-board .gs-coords-top {
+  margin-left: 14px;
+}
+
+/* Pieces: player = blue outline set, WOPR = red solid set on a dark disc. */
+.ch-board .gs-piece {
+  font-size: calc(var(--gs-cellsize) * 0.7);
+  line-height: 1;
+  font-variant-emoji: text;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 78%;
+  height: 78%;
+  border-radius: 50%;
+}
+.ch-board .gs-piece.mine {
+  color: #b8dcff;
+  text-shadow:
+    0 0 1px #b8dcff,
+    0 0 4px rgba(108, 182, 255, 0.7);
+}
+.ch-board .gs-piece.theirs {
+  color: #ff8080;
+  background: radial-gradient(circle, rgba(60, 8, 8, 0.55) 40%, transparent 72%);
+  text-shadow: 0 0 3px rgba(255, 92, 92, 0.6);
+}
+.ch-board .gs-cell.is-check {
+  box-shadow: inset 0 0 0 3px var(--gs-them);
+  background-image: radial-gradient(circle, rgba(255, 92, 92, 0.45), transparent 70%);
+}
+
+/* Promotion picker over the board. */
+.ch-promo {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(2, 6, 14, 0.72);
+  z-index: 2;
+}
+.ch-promo-box {
+  border: 1px solid var(--gs-amber);
+  background: rgba(8, 20, 40, 0.96);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: center;
+}
+.ch-promo-title {
+  color: var(--gs-amber);
+  letter-spacing: 0.1em;
+  font-size: 15px;
+}
+.ch-promo-row {
+  display: flex;
+  gap: 8px;
+}
+.ch-promo-row .gs-btn {
+  min-width: 56px;
+  min-height: 64px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 4px 6px;
+}
+.ch-promo-glyph {
+  font-size: 30px;
+  line-height: 1;
+  color: #b8dcff;
+  font-family: 'Segoe UI Symbol', 'Apple Symbols', 'Noto Sans Symbols2', 'DejaVu Sans', serif;
+}
+.ch-promo-row .gs-btn span:last-child {
+  font-size: 12px;
+}
+
+/* Move list. */
+.ch-moves {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 210px;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: 2.6em 1fr 1fr;
+  gap: 2px 8px;
+  font-variant-numeric: tabular-nums;
+  font-size: 15px;
+}
+.ch-moves li {
+  display: contents;
+}
+.ch-moves .ch-n {
+  color: var(--gs-muted);
+  text-shadow: none;
+}
+.ch-moves .ch-b {
+  color: #ff9a9a;
+}
+.ch-moves .ch-last {
+  color: var(--gs-amber);
+}
+.ch-notice {
+  color: var(--gs-amber);
+  letter-spacing: 0.08em;
+}
+.ch-settings-note {
+  color: var(--gs-muted);
+  font-size: 14px;
+  text-shadow: none;
+}
