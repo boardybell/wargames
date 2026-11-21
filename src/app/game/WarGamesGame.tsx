@@ -8,6 +8,8 @@ import type { ReactNode } from 'react'
 import { bootApp } from '../boot'
 import { gameFor } from './games/registry'
 import './game.css'
+import { setMachineRoomLevel, startMachineRoom } from './machineRoom'
+import type { RoomLevel } from './machineRoom'
 
 // ---------- sound (created and resumed on the activation gesture) ----------
 let actx: AudioContext | null = null
@@ -33,9 +35,28 @@ function ctx(): AudioContext | null {
   return actx
 }
 
-// Start audio inside a user gesture: resume the context and lay down a low
-// room-hum bed so the machine is always audibly alive.
-function startAudio(): void {
+// The visitor's sound choice from the hero's SOUND switch, remembered across
+// visits. null means they never chose, which counts as on.
+const SOUND_KEY = 'wg.sound'
+function soundPref(): 'on' | 'off' | null {
+  try {
+    const v = window.localStorage.getItem(SOUND_KEY)
+    return v === 'on' || v === 'off' ? v : null
+  } catch {
+    return null
+  }
+}
+function saveSoundPref(v: 'on' | 'off'): void {
+  try {
+    window.localStorage.setItem(SOUND_KEY, v)
+  } catch {
+    /* private mode: the choice just isn't remembered */
+  }
+}
+
+// Turn sound on and bring up the machine room. Must run inside a user gesture
+// unless the browser already allows audio (autoplay permitted).
+function enableSound(level: RoomLevel): void {
   soundOn = true
   const c = ctx()
   if (!c || !master) return
@@ -44,20 +65,25 @@ function startAudio(): void {
   } catch {
     /* ignore */
   }
+  startMachineRoom(c, master, level)
+}
+
+function muteSound(): void {
+  soundOn = false
   try {
-    const hg = c.createGain()
-    hg.gain.value = 0.05
-    hg.connect(master)
-    for (const f of [57, 57.7, 114]) {
-      const o = c.createOscillator()
-      o.type = 'sine'
-      o.frequency.value = f
-      o.connect(hg)
-      o.start()
-    }
+    void actx?.suspend()
   } catch {
     /* ignore */
   }
+}
+
+// Start audio inside the activation gesture: the machine room keeps running
+// underneath the terminal as a quieter bed so the machine is always audibly
+// alive. An explicit SOUND OFF on the hero is respected.
+function startAudio(): void {
+  if (soundPref() === 'off') return
+  enableSound('terminal')
+  setMachineRoomLevel('terminal')
 }
 
 function beep(
@@ -263,6 +289,79 @@ function WoprLights() {
   )
 }
 
+/** The machine room on the hero. Plays straight away when the browser allows
+ *  it; otherwise it starts on the visitor's first key press or tap, or from the
+ *  SOUND switch in the corner (which does not activate the terminal). */
+function HeroSound() {
+  const [state, setState] = useState<'on' | 'off' | 'waiting'>(() =>
+    soundPref() === 'off' ? 'off' : 'waiting',
+  )
+
+  useEffect(() => {
+    if (state !== 'waiting') return
+    const c = ctx()
+    if (!c) return
+    // Allowed already (a returning visitor, or a permissive browser)?
+    if (c.state === 'running') {
+      enableSound('hero')
+      setState('on')
+      return
+    }
+    const unlock = (e?: Event): void => {
+      // A press on the SOUND switch is handled by the switch itself.
+      const t = e?.target
+      if (t instanceof Element && t.closest('.wg-hero-sound')) return
+      if (soundPref() === 'off') return
+      enableSound('hero')
+      setState('on')
+    }
+    const opts = { capture: true, once: true } as const
+    window.addEventListener('keydown', unlock, opts)
+    window.addEventListener('pointerdown', unlock, opts)
+    window.addEventListener('touchstart', unlock, opts)
+    // Some browsers allow a resume without a gesture; try once.
+    c.resume()
+      .then(() => {
+        if (c.state === 'running' && soundPref() !== 'off') unlock()
+      })
+      .catch(() => {})
+    return () => {
+      window.removeEventListener('keydown', unlock, opts)
+      window.removeEventListener('pointerdown', unlock, opts)
+      window.removeEventListener('touchstart', unlock, opts)
+    }
+  }, [state])
+
+  const toggle = (e: React.SyntheticEvent): void => {
+    // The whole hero is the ACTIVATE button; the switch must not trigger it.
+    e.stopPropagation()
+    if (state === 'on') {
+      saveSoundPref('off')
+      muteSound()
+      setState('off')
+    } else {
+      saveSoundPref('on')
+      enableSound('hero')
+      setMachineRoomLevel('hero')
+      setState('on')
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      className={`wg-hero-sound ${state === 'on' ? 'on' : ''}`}
+      onClick={toggle}
+      onPointerDown={(e) => e.stopPropagation()}
+      onKeyDown={(e) => e.stopPropagation()}
+      aria-pressed={state === 'on'}
+      data-testid="hero-sound"
+    >
+      SOUND {state === 'on' ? 'ON' : 'OFF'}
+    </button>
+  )
+}
+
 type Stage =
   | 'hero'
   | 'boot'
@@ -360,10 +459,13 @@ export function WarGamesGame() {
           onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && activate()}
           data-testid="hero"
         >
-          <img src="art/hero-desktop.jpg" alt="" />
-          <WoprLights />
+          <div className="wg-hero-frame">
+            <img src="art/hero-desktop.jpg" alt="" />
+            <WoprLights />
+          </div>
           <div className="wg-hero-vignette" />
           <div className="wg-hero-prompt">ACTIVATE TERMINAL</div>
+          <HeroSound />
         </div>
       )}
 
