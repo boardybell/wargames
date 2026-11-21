@@ -272,7 +272,7 @@ function BlackJack({ onExit }: GameProps) {
       title="BLACK JACK"
       layout="table"
       objective={`TURN $${START_BANKROLL} INTO $${GOAL}. BET $${BET} A HAND.`}
-      phase={playing ? 'HIT, STAND OR DOUBLE' : sessionOver ? 'SESSION OVER' : round ? 'HAND COMPLETE' : 'PLACE YOUR BET'}
+      phase={playing ? 'HIT, STAND OR DOUBLE' : sessionOver ? 'SESSION OVER' : round ? 'HAND COMPLETE' : 'READY TO DEAL'}
       metrics={[
         { label: 'BANKROLL', value: `$${session.bankroll}`, tone: session.bankroll < START_BANKROLL ? 'red' : 'normal' },
         { label: 'LAST HAND', value: netText, tone: net && net > 0 ? 'amber' : net && net < 0 ? 'red' : 'dim' },

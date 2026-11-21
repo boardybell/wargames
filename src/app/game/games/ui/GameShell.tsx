@@ -169,6 +169,8 @@ export interface ActionProps {
 
 /** A 44px command button with an optional disabled reason and shortcut hint. */
 export function Action(p: ActionProps) {
+  const reasonId = useId()
+  const showReason = !!(p.disabled && p.reason)
   return (
     <span className="gs-action">
       <button
@@ -181,11 +183,16 @@ export function Action(p: ActionProps) {
         data-testid={p.testId}
         autoFocus={p.autoFocus}
         aria-keyshortcuts={p.shortcut}
+        aria-describedby={showReason ? reasonId : undefined}
       >
         {p.children}
         {p.shortcut && <kbd className="gs-kbd">{p.shortcut}</kbd>}
       </button>
-      {p.disabled && p.reason && <span className="gs-reason">{p.reason}</span>}
+      {showReason && (
+        <span className="gs-reason" id={reasonId}>
+          {p.reason}
+        </span>
+      )}
     </span>
   )
 }
