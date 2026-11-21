@@ -1,407 +1,545 @@
-// THEATERWIDE TACTICAL WARFARE. A WOPR theater-command simulation. The front is
-// a chain of five sectors running from your capital to the enemy capital. Each
-// turn you draw divisions from your reserve pool and commit them to sectors;
-// the AI opponent commits its own reserves; combat resolves sector by sector and
-// the front line shifts. Push the line onto the enemy capital to WIN, lose your
-// own to LOSE, grind to exhaustion for a STALEMATE. Blue phosphor throughout.
-import { useMemo, useState } from 'react'
+// THEATERWIDE TACTICAL WARFARE. A five-sector front from your capital to the
+// enemy capital. Each round you place reserve divisions and choose ADVANCE or
+// HOLD; the enemy places its pool by a declared doctrine; one assault and at
+// most one counterattack resolve. Rules live in engines/theaterwide-tactical.ts
+// (pure, force-conserving, fixture-tested). Design: docs/games-design-review.md §13.
+import { useMemo, useRef, useState } from 'react'
 import type { GameEntry, GameProps } from './types'
+import { Action, ActionBar, GameReport, GameResult, GameShell, Panel, Segmented, type Metric } from './ui/GameShell'
+import { cue, fmtWLD, newSeed, rng, useEventLog, useGameKeys, useGameRecords, type WLD } from './hooks'
+import {
+  AI_CAPITAL,
+  COUNTER_MARGIN,
+  CAPITAL_BONUS,
+  DOCTRINES,
+  LINE_BONUS,
+  MAX_ROUNDS,
+  REINFORCE,
+  SECTOR_NAMES,
+  SECTOR_SHORT,
+  US_CAPITAL,
+  committed,
+  emptyOrders,
+  front,
+  held,
+  initialState,
+  ordersProblem,
+  playRound,
+  preview,
+  reconciles,
+  type BattleReport,
+  type Difficulty,
+  type Orders,
+  type Result,
+  type RoundReport,
+  type State,
+} from './engines/theaterwide-tactical'
+import './styles/theaterwide-tactical.css'
 
-// Sectors are indexed 0..4. Index 0 is YOUR capital, index 4 is the ENEMY
-// capital. Control runs on a continuous front line: you hold sectors up to a
-// boundary, the enemy holds the rest. frontOwner[i] is 'US' or 'AI'.
-type Owner = 'US' | 'AI'
-type Outcome = 'win' | 'lose' | 'stalemate' | null
-
-const SECTORS: readonly string[] = [
-  'HOME CAPITAL',
-  'WESTERN FRONT',
-  'CENTRAL PLAIN',
-  'EASTERN FRONT',
-  'ENEMY CAPITAL',
+const SLUG = 'theaterwide-tactical'
+const DIFFS: readonly { value: Difficulty; label: string }[] = [
+  { value: 'easy', label: 'EASY' },
+  { value: 'normal', label: 'NORMAL' },
+  { value: 'hard', label: 'HARD' },
 ]
 
-const START_RESERVE = 10
-const MAX_TURNS = 14
-const REINFORCE = 4 // divisions added to each side's pool per turn
-
-interface Sector {
-  owner: Owner
-  usDiv: number // player divisions committed and holding here
-  aiDiv: number // enemy divisions committed and holding here
-}
-
-function initialSectors(): Sector[] {
-  return SECTORS.map((_, i) => ({
-    owner: i <= 1 ? 'US' : 'AI',
-    usDiv: i === 1 ? 3 : 0,
-    aiDiv: i === 3 ? 3 : 0,
-  }))
-}
-
-function roll(max: number): number {
-  return Math.floor(Math.random() * max)
-}
-
-// The contested sectors are the front edge: the highest US-owned index and the
-// lowest AI-owned index are where fighting happens.
-function frontIndices(sectors: readonly Sector[]): {
-  usEdge: number
-  aiEdge: number
-} {
-  let usEdge = 0
-  let aiEdge = sectors.length - 1
-  for (let i = 0; i < sectors.length; i++) {
-    if (sectors[i]!.owner === 'US') usEdge = i
+function resultText(r: Result): { headline: string; reason: string } {
+  switch (r.reason) {
+    case 'capital-captured':
+      return { headline: 'ENEMY CAPITAL CAPTURED. THEATER WON.', reason: 'YOUR ASSAULT TOOK THE ENEMY CAPITAL.' }
+    case 'capital-lost':
+      return { headline: 'HOME CAPITAL LOST. THEATER LOST.', reason: 'AN ENEMY COUNTERATTACK OVERRAN YOUR CAPITAL.' }
+    case 'armistice':
+      return r.outcome === 'win'
+        ? { headline: `ARMISTICE. YOU HOLD ${r.usHeld} OF 5 SECTORS.`, reason: `ROUND ${MAX_ROUNDS} ENDED WITH BOTH CAPITALS STANDING. THE MAJORITY OF SECTORS DECIDES: YOURS.` }
+        : { headline: `ARMISTICE. THE ENEMY HOLDS ${r.aiHeld} OF 5 SECTORS.`, reason: `ROUND ${MAX_ROUNDS} ENDED WITH BOTH CAPITALS STANDING. THE MAJORITY OF SECTORS DECIDES: THEIRS.` }
   }
-  for (let i = sectors.length - 1; i >= 0; i--) {
-    if (sectors[i]!.owner === 'AI') aiEdge = i
+}
+
+function battleLine(b: BattleReport): string {
+  const who = b.attacker === 'US' ? 'YOUR ASSAULT ON' : 'ENEMY COUNTERATTACK ON'
+  const atk = b.committed.assault ? `${b.committed.edge}+${b.committed.assault}` : `${b.committed.attacker}`
+  const head = `${who} ${SECTOR_NAMES[b.target]}: ${atk} +${b.atkRoll} = ${b.atkPower} VS ${b.committed.defender} +${b.bonus} +${b.defRoll} = ${b.defPower}.`
+  if (b.result === 'breakthrough') {
+    const fell = b.retreated ? ` ${b.retreated} FELL BACK TO ${SECTOR_NAMES[b.retreatTo!]}.` : ''
+    return `${head} BREAKTHROUGH. ATTACKER LOST ${b.lost.attacker}, DEFENDER LOST ${b.lost.defender}.${fell} ${b.transferred} ADVANCE INTO ${SECTOR_NAMES[b.target]}.`
   }
-  return { usEdge, aiEdge }
+  const res = b.result === 'repulsed' ? 'REPULSED' : 'LINE HOLDS'
+  return `${head} ${res}. ATTACKER LOST ${b.lost.attacker}, DEFENDER LOST ${b.lost.defender}. ${b.withdrawn} WITHDRAW TO ${SECTOR_NAMES[b.from]}.`
+}
+
+function allocText(alloc: readonly number[], assault = 0): string {
+  const parts = alloc.map((n, i) => (n > 0 ? `+${n} ${SECTOR_SHORT[i]}` : '')).filter(Boolean)
+  if (assault > 0) parts.push(`ASSAULT ${assault}`)
+  return parts.length ? parts.join(', ') : 'NOTHING'
+}
+
+/** Fresh orders default to HOLD: advancing is always an explicit choice. */
+const holdOrders = (): Orders => ({ ...emptyOrders(), advance: false })
+
+const pct = (x: number): string => `${Math.round(x * 100)}%`
+
+interface Game {
+  readonly state: State
+  readonly id: number
 }
 
 function TheaterwideTactical({ onExit }: GameProps) {
-  const [sectors, setSectors] = useState<Sector[]>(initialSectors)
-  const [reserve, setReserve] = useState(START_RESERVE)
-  const [aiReserve, setAiReserve] = useState(START_RESERVE)
-  const [pending, setPending] = useState<Record<number, number>>({})
-  const [turn, setTurn] = useState(1)
-  const [log, setLog] = useState<string[]>([
-    'THEATER COMMAND ONLINE. ALLOCATE RESERVES TO THE FRONT.',
-  ])
-  const [critLog, setCritLog] = useState(false)
-  const [outcome, setOutcome] = useState<Outcome>(null)
+  const rec = useGameRecords(SLUG)
+  const [difficulty, setDifficulty] = useState<Difficulty>(() => rec.get<Difficulty>('difficulty', 'normal'))
+  const [game, setGame] = useState<Game>(() => ({ state: initialState(difficulty), id: newSeed() }))
+  const rand = useRef(rng(game.id))
+  const [orders, setOrders] = useState<Orders>(holdOrders)
+  const [selected, setSelected] = useState(() => front(game.state.sectors).contested)
+  const [last, setLast] = useState<RoundReport | null>(null)
+  const log = useEventLog()
 
-  const committed = useMemo(
-    () => Object.values(pending).reduce((a, b) => a + b, 0),
-    [pending],
-  )
-  const available = reserve - committed
+  const s = game.state
+  const { edge, contested } = front(s.sectors)
+  const used = committed(orders)
+  const available = s.usPool - used
+  const problem = ordersProblem(s, orders)
+  const pv = useMemo(() => preview(s, orders), [s, orders])
+  const doctrine = DOCTRINES[s.difficulty]
+  const pendingDiff = difficulty !== s.difficulty
 
-  const { usEdge } = frontIndices(sectors)
-  // Sectors you can reinforce: your front edge and any AI sector adjacent to it
-  // (where you are pressing). Simplest honest model: your own owned sectors and
-  // the single contested enemy sector in front of your edge.
-  const pressTarget = Math.min(usEdge + 1, SECTORS.length - 1)
-
-  const reset = (): void => {
-    setSectors(initialSectors())
-    setReserve(START_RESERVE)
-    setAiReserve(START_RESERVE)
-    setPending({})
-    setTurn(1)
-    setLog(['THEATER COMMAND ONLINE. ALLOCATE RESERVES TO THE FRONT.'])
-    setCritLog(false)
-    setOutcome(null)
+  const restart = (d: Difficulty = difficulty): void => {
+    const id = newSeed()
+    rand.current = rng(id)
+    const st = initialState(d)
+    setGame({ state: st, id })
+    setOrders(holdOrders())
+    setSelected(front(st.sectors).contested)
+    setLast(null)
+    log.reset()
   }
 
-  const adjust = (idx: number, delta: number): void => {
-    if (outcome) return
-    setPending((prev) => {
-      const cur = prev[idx] ?? 0
-      const next = cur + delta
-      if (next < 0) return prev
-      const otherTotal =
-        Object.entries(prev).reduce(
-          (a, [k, v]) => (Number(k) === idx ? a : a + v),
-          0,
-        )
-      if (otherTotal + next > reserve) return prev
-      return { ...prev, [idx]: next }
+  const chooseDifficulty = (d: Difficulty): void => {
+    setDifficulty(d)
+    rec.update<Difficulty>('difficulty', () => d)
+    cue.select()
+    // Before the first round there is nothing to lose: apply now.
+    if (s.round === 1 && used === 0 && !s.result) restart(d)
+  }
+
+  // ---------------------------------------------------------------- orders
+  const canAdd = (i: number): boolean =>
+    !s.result && available > 0 && (s.sectors[i]!.owner === 'US' || (i === contested && orders.advance))
+  const amountAt = (i: number): number => (s.sectors[i]!.owner === 'US' ? orders.alloc[i]! : i === contested ? orders.assault : 0)
+  const setAt = (i: number, n: number): void => {
+    setOrders((o) => {
+      if (s.sectors[i]!.owner === 'US') {
+        const alloc = o.alloc.slice()
+        alloc[i] = n
+        return { ...o, alloc }
+      }
+      return i === contested ? { ...o, assault: n } : o
     })
   }
-
-  const resolveTurn = (): void => {
-    if (outcome) return
-    const next: Sector[] = sectors.map((s) => ({ ...s }))
-    const lines: string[] = []
-    let crit = false
-
-    // 1) Commit the player's pending divisions to their sectors.
-    for (const [k, v] of Object.entries(pending)) {
-      const idx = Number(k)
-      if (v > 0) next[idx]!.usDiv += v
-    }
-    if (committed > 0) lines.push(`COMMITTED ${committed} DIVISIONS TO THE LINE.`)
-
-    // 2) AI allocates its reserve. It reinforces its contested edge and probes.
-    const aiPool = aiReserve + REINFORCE
-    const aiEdgeIdx = frontIndices(next).aiEdge
-    // AI splits: bulk to its frontline sector, remainder to the sector behind.
-    const aiFrontShare = Math.ceil(aiPool * 0.7)
-    next[aiEdgeIdx]!.aiDiv += aiFrontShare
-    const aiBack = Math.min(aiEdgeIdx + 1, SECTORS.length - 1)
-    next[aiBack]!.aiDiv += aiPool - aiFrontShare
-    lines.push(`ENEMY COMMITS ${aiPool} DIVISIONS. FRONT HARDENS.`)
-
-    // 3) Resolve the single contested sector in front of the player's edge.
-    const fi = frontIndices(next)
-    const contestIdx = Math.min(fi.usEdge + 1, SECTORS.length - 1)
-    const contest = next[contestIdx]!
-
-    // Attack strength = player divisions staged at their edge + press commitment
-    // at the contested sector. Defense = AI divisions in the contested sector.
-    const attackStage = next[fi.usEdge]!.usDiv + contest.usDiv
-    const defense = contest.aiDiv
-    const atkRoll = roll(4)
-    const defRoll = roll(4)
-    const atkPower = attackStage + atkRoll
-    const defPower = defense + defRoll
-
-    lines.push(
-      `BATTLE FOR ${SECTORS[contestIdx]}: ATK ${attackStage}+${atkRoll} vs DEF ${defense}+${defRoll}.`,
-    )
-
-    if (atkPower > defPower) {
-      // Player breaks through and takes the sector. Losses on both sides.
-      const losses = Math.min(contest.usDiv + next[fi.usEdge]!.usDiv, defRoll + 2)
-      contest.owner = 'US'
-      contest.aiDiv = 0
-      // Survivors occupy the captured sector; attrition removes some divisions.
-      const survivors = Math.max(1, attackStage - losses)
-      next[fi.usEdge]!.usDiv = Math.max(0, next[fi.usEdge]!.usDiv - losses)
-      contest.usDiv = Math.max(contest.usDiv, 1)
-      void survivors
-      crit = true
-      lines.push(`BREAKTHROUGH. ${SECTORS[contestIdx]} CAPTURED.`)
-    } else if (defPower > atkPower) {
-      // Enemy holds and counterattacks: player loses staged divisions. If the
-      // player edge sector itself is emptied and under pressure, it can fall.
-      const losses = Math.min(attackStage, atkRoll + 2)
-      next[fi.usEdge]!.usDiv = Math.max(0, next[fi.usEdge]!.usDiv - losses)
-      contest.usDiv = Math.max(0, contest.usDiv - losses)
-      contest.aiDiv = Math.max(1, contest.aiDiv - 1)
-      lines.push(`ATTACK REPULSED. ${losses} DIVISIONS LOST.`)
-      // Counterattack: if the player's edge sector is undefended, the enemy
-      // overruns it and pushes the front back. When that edge is the HOME
-      // CAPITAL (index 0), the capital itself falls and the theater is lost.
-      if (next[fi.usEdge]!.usDiv === 0 && contest.aiDiv >= 3) {
-        next[fi.usEdge]!.owner = 'AI'
-        next[fi.usEdge]!.aiDiv = Math.max(1, contest.aiDiv - 2)
-        crit = true
-        lines.push(`ENEMY COUNTERATTACK OVERRUNS ${SECTORS[fi.usEdge]}.`)
-      }
-    } else {
-      lines.push('THE LINE HOLDS. NO GROUND CHANGES HANDS.')
-    }
-
-    // 4) Replenish pools.
-    const newReserve = available + REINFORCE
-    const newAiReserve = 0 // AI spent its whole pool this turn, rebuilds next
-
-    // 5) Outcome checks. Capitals are indices 0 and 4.
-    const fin = frontIndices(next)
-    let nextOutcome: Outcome = null
-    if (next[4]!.owner === 'US') {
-      nextOutcome = 'win'
-      lines.push('ENEMY CAPITAL TAKEN. THEATER WON.')
-    } else if (next[0]!.owner === 'AI') {
-      nextOutcome = 'lose'
-      lines.push('HOME CAPITAL FALLEN. THEATER LOST.')
-    } else if (turn >= MAX_TURNS) {
-      // Decide stalemate by who holds more sectors.
-      const usHeld = next.filter((s) => s.owner === 'US').length
-      const aiHeld = next.length - usHeld
-      if (usHeld > aiHeld) {
-        nextOutcome = 'win'
-        lines.push('ARMISTICE. YOU HOLD MORE GROUND. MARGINAL VICTORY.')
-      } else if (aiHeld > usHeld) {
-        nextOutcome = 'lose'
-        lines.push('ARMISTICE. ENEMY HOLDS MORE GROUND. DEFEAT.')
-      } else {
-        nextOutcome = 'stalemate'
-        lines.push('THE FRONT IS FROZEN. STALEMATE. NO ONE WINS.')
-      }
-    }
-    void fin
-
-    setSectors(next)
-    setReserve(nextOutcome ? 0 : newReserve)
-    setAiReserve(newAiReserve + REINFORCE)
-    setPending({})
-    setTurn((t) => t + 1)
-    setLog((prev) => [...prev.slice(-6), ...lines])
-    setCritLog(crit)
-    setOutcome(nextOutcome)
+  const adjust = (i: number, d: number): void => {
+    const cur = amountAt(i)
+    if (d > 0 && !canAdd(i)) return cue.deny()
+    if (d < 0 && cur === 0) return cue.deny()
+    setAt(i, cur + d)
+    cue.select()
+  }
+  const commitAll = (i: number): void => {
+    if (!canAdd(i)) return cue.deny()
+    setAt(i, amountAt(i) + available)
+    cue.select()
+  }
+  const clear = (): void => {
+    setOrders((o) => ({ ...emptyOrders(), advance: o.advance }))
+    cue.tick()
+  }
+  const setAdvance = (advance: boolean): void => {
+    if (s.result) return
+    setOrders((o) => ({ ...o, advance, assault: advance ? o.assault : 0 }))
+    cue.select()
   }
 
-  return (
-    <div className="wg-screen" data-testid="game-theaterwide-tactical">
-      <div className="wg-out" style={{ overflow: 'auto' }}>
-        <div className="wg-big">THEATERWIDE TACTICAL WARFARE</div>
-        <div className="wg-dim" style={{ marginBottom: '0.6rem' }}>
-          WOPR THEATER SIMULATION // PUSH THE FRONT ONTO THE ENEMY CAPITAL
-        </div>
+  // ---------------------------------------------------------------- execute
+  const execute = (): void => {
+    if (problem) return cue.deny()
+    const { state, report } = playRound(s, orders, rand.current)
+    setGame((g) => ({ ...g, state }))
+    setLast(report)
+    setOrders(holdOrders())
+    setSelected(front(state.sectors).contested)
 
-        <div
-          style={{
-            display: 'flex',
-            gap: '1.4rem',
-            flexWrap: 'wrap',
-            marginBottom: '0.6rem',
-          }}
-        >
-          <span>
-            RESERVE POOL <span className="wg-amber">{available}</span> / {reserve}
-          </span>
-          <span className="wg-dim">COMMITTED {committed}</span>
-          <span className="wg-dim">
-            TURN {Math.min(turn, MAX_TURNS)}/{MAX_TURNS}
-          </span>
-          <span className="wg-dim">ENEMY RESERVE ~{aiReserve}</span>
-        </div>
+    const ev: { text: string; kind?: 'info' | 'good' | 'bad' | 'warn' }[] = [
+      { text: `ROUND ${report.round}. YOU: ${report.advance ? 'ADVANCE' : 'HOLD'}, ${allocText(report.usAlloc, report.assault)}.` },
+      { text: `ENEMY ${doctrine.name}: ${allocText(report.aiAlloc)}.`, kind: 'warn' },
+    ]
+    if (report.assaultBattle) ev.push({ text: battleLine(report.assaultBattle), kind: report.assaultBattle.result === 'breakthrough' ? 'good' : 'bad' })
+    else ev.push({ text: 'NO ASSAULT. YOUR LINE HOLDS POSITION.' })
+    if (report.counter) ev.push({ text: battleLine(report.counter), kind: report.counter.result === 'breakthrough' ? 'bad' : 'good' })
+    if (report.reinforced.us) ev.push({ text: `REINFORCEMENTS +${REINFORCE} EACH. YOUR RESERVE ${state.usPool}, ENEMY RESERVE ${state.aiPool}.` })
+    if (state.result) {
+      const t = resultText(state.result)
+      ev.push({ text: t.headline, kind: state.result.outcome === 'win' ? 'good' : 'bad' })
+    }
+    log.push(...ev)
 
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: `repeat(${SECTORS.length}, 1fr)`,
-            gap: '0.3rem',
-            marginBottom: '0.6rem',
-          }}
-          data-testid="front-map"
-        >
-          {sectors.map((s, i) => {
-            const mine = s.owner === 'US'
-            const isCapital = i === 0 || i === 4
-            const canReinforce =
-              !outcome && (s.owner === 'US' || i === pressTarget)
-            const staged = pending[i] ?? 0
-            return (
-              <div
-                key={i}
-                style={{
-                  border: `1px solid ${
-                    mine ? 'rgba(108,182,255,0.6)' : 'rgba(255,92,92,0.5)'
-                  }`,
-                  padding: '0.35rem',
-                  background: mine
-                    ? 'rgba(108,182,255,0.08)'
-                    : 'rgba(255,92,92,0.06)',
-                  fontSize: '0.78em',
+    // One cue per committed event: the decisive one.
+    if (state.result) {
+      if (state.result.outcome === 'win') cue.win()
+      else cue.lose()
+      const outcome = state.result.outcome
+      rec.recordOnce(String(game.id), () => rec.tally(`wld-${s.difficulty}`, outcome))
+    } else if (report.counter?.result === 'breakthrough') cue.alarm()
+    else if (report.assaultBattle?.result === 'breakthrough') cue.boom()
+    else if (report.assaultBattle || report.counter) cue.hit()
+    else cue.tick()
+  }
+
+  // ---------------------------------------------------------------- keys
+  useGameKeys((k) => {
+    if (k === 'ArrowLeft') return setSelected((i) => Math.max(0, i - 1)), true
+    if (k === 'ArrowRight') return setSelected((i) => Math.min(4, i + 1)), true
+    if (s.result) return
+    if (k === '+' || k === '=') return adjust(selected, 1), true
+    if (k === '-' || k === '_') return adjust(selected, -1), true
+    if (k === 'x' || k === 'X') return execute(), true
+    if (k === 'a' || k === 'A') return setAdvance(true), true
+    if (k === 'h' || k === 'H') return setAdvance(false), true
+    if (k === 'c' || k === 'C') return clear(), true
+  })
+
+  // ---------------------------------------------------------------- view
+  const record = rec.get<WLD | undefined>(`wld-${s.difficulty}`, undefined)
+  const metrics: Metric[] = [
+    { label: 'ROUND', value: `${Math.min(s.round, MAX_ROUNDS)}/${MAX_ROUNDS}` },
+    { label: 'RESERVE', value: `${available}/${s.usPool}`, tone: 'amber', title: 'Unassigned / total reserve divisions' },
+    { label: 'ENEMY RESERVE', value: s.aiPool, tone: 'red' },
+    { label: 'SECTORS', value: `${held(s.sectors, 'US')}/5`, title: 'Sectors you hold' },
+    { label: 'LOSSES', value: `${s.lost.us}/${s.lost.ai}`, title: 'Divisions lost: yours / enemy' },
+    { label: `RECORD ${s.difficulty.toUpperCase()}`, value: fmtWLD(record), tone: 'dim' },
+  ]
+
+  const phase = s.result
+    ? 'CAMPAIGN OVER'
+    : available > 0
+      ? `ROUND ${s.round}. PLACE ${available} RESERVE DIVISION${available === 1 ? '' : 'S'} (OPTIONAL), CHOOSE ADVANCE OR HOLD, THEN EXECUTE.`
+      : `ROUND ${s.round}. RESERVE PLACED. EXECUTE ROUND.`
+
+  const help = (
+    <>
+      <p>
+        FIVE SECTORS RUN FROM YOUR HOME CAPITAL (LEFT) TO THE ENEMY CAPITAL (RIGHT). YOU HOLD A CONTINUOUS BLOCK FROM YOUR
+        CAPITAL TO YOUR EDGE; THE SECTOR IN FRONT OF YOUR EDGE IS CONTESTED.
+      </p>
+      <ul>
+        <li>WIN: CAPTURE THE ENEMY CAPITAL. LOSE: YOUR CAPITAL IS OVERRUN.</li>
+        <li>
+          ARMISTICE AFTER ROUND {MAX_ROUNDS}: WHOEVER HOLDS 3 OR MORE OF THE 5 SECTORS WINS. FIVE SECTORS CANNOT SPLIT EVENLY, SO
+          THERE IS NO TIE. YOU START WITH 2.
+        </li>
+        <li>
+          EACH ROUND: (1) PLACE RESERVE ON SECTORS YOU HOLD, OR INTO THE ASSAULT SLOT ON THE CONTESTED SECTOR. UNPLACED RESERVE
+          CARRIES OVER. THE ENEMY PLACES ITS WHOLE POOL BY ITS DOCTRINE AT THE SAME TIME, FROM THE START-OF-ROUND MAP.
+        </li>
+        <li>
+          (2) ADVANCE: YOUR EDGE GARRISON PLUS ASSAULT DIVISIONS ATTACK. ATTACK = DIVISIONS + ROLL 0-3. DEFENSE = DIVISIONS +{' '}
+          {LINE_BONUS} (LINE) OR +{CAPITAL_BONUS} (CAPITAL) + ROLL 0-3. HIGHER TOTAL WINS; EQUAL HOLDS.
+        </li>
+        <li>
+          BREAKTHROUGH: ATTACKER LOSES 2 + THE DEFENSE ROLL (ALWAYS KEEPING 1). EVERY SURVIVOR MOVES INTO THE CAPTURED SECTOR.
+          HALF THE DEFENDERS (ROUNDED UP) ARE DESTROYED, THE REST FALL BACK ONE SECTOR; A CAPITAL'S DEFENDERS HAVE NOWHERE TO GO.
+        </li>
+        <li>
+          REPULSED: ATTACKER LOSES 2 + THE DEFENSE ROLL, DEFENDER LOSES 1 IF IT HAS 2 OR MORE. HELD (EQUAL): EACH LOSES 1.
+          SURVIVORS WITHDRAW TO YOUR EDGE. CASUALTIES COME FROM THE ASSAULT SLOT FIRST, THEN THE GARRISON, EACH COUNTED ONCE.
+        </li>
+        <li>
+          (3) COUNTERATTACK: IF THE ENEMY STACK FACING YOUR EDGE IS AT LEAST YOUR EDGE GARRISON + {COUNTER_MARGIN.easy} (EASY),{' '}
+          {COUNTER_MARGIN.normal} (NORMAL) OR {COUNTER_MARGIN.hard} (HARD), IT ATTACKS WITH ALL BUT ONE DIVISION, SAME RULES.
+        </li>
+        <li>(4) REINFORCEMENT: +{REINFORCE} TO BOTH RESERVE POOLS, ONCE, AT THE END OF EVERY ROUND.</li>
+        <li>
+          DIFFICULTY CHANGES THE ENEMY DOCTRINE AND COUNTERATTACK MARGIN, NOTHING HIDDEN. EASY: {DOCTRINES.easy.summary}. NORMAL:{' '}
+          {DOCTRINES.normal.summary}. HARD: {DOCTRINES.hard.summary}.
+        </li>
+        <li>KEYS: LEFT/RIGHT SELECT SECTOR, + / - ADJUST, A ADVANCE, H HOLD, C CLEAR, X EXECUTE. ORDERS START EACH ROUND AS HOLD.</li>
+      </ul>
+    </>
+  )
+
+  const sel = s.sectors[selected]!
+  const selMine = sel.owner === 'US'
+  const selRole =
+    selected === edge
+      ? 'YOUR EDGE. ITS GARRISON LEADS ANY ADVANCE AND FACES ANY COUNTERATTACK.'
+      : selected === contested
+        ? 'CONTESTED. THE TARGET OF AN ADVANCE THIS ROUND.'
+        : selMine
+          ? 'YOUR REAR. DIVISIONS HERE DO NOT FIGHT UNTIL IT BECOMES THE EDGE.'
+          : 'ENEMY REAR. NOT REACHABLE UNTIL THE FRONT ADVANCES.'
+  const slotLabel = selMine ? 'REINFORCE GARRISON' : selected === contested ? 'ASSAULT DIVISIONS' : null
+  const amount = amountAt(selected)
+  const addReason = s.result
+    ? 'CAMPAIGN OVER'
+    : available === 0
+      ? 'NO RESERVE LEFT'
+      : !selMine && !orders.advance
+        ? 'ORDER IS HOLD'
+        : undefined
+
+  const inspector = (
+    <Panel title="SELECTED SECTOR" className="tt-inspector">
+      <div className="tt-insp-head">
+        <span className={selMine ? 'tt-us' : 'tt-ai'}>{SECTOR_NAMES[selected]}</span>
+        <span className="tt-insp-tags">
+          {(selected === US_CAPITAL || selected === AI_CAPITAL) && <span className="tt-tag">CAPITAL +{CAPITAL_BONUS} DEF</span>}
+          {selected === edge && <span className="tt-tag tt-tag-edge">EDGE</span>}
+          {selected === contested && <span className="tt-tag tt-tag-contest">CONTESTED</span>}
+        </span>
+      </div>
+      <p className="tt-insp-line">
+        {selMine ? 'HELD BY YOU' : 'HELD BY ENEMY'} · {sel.div} DIVISION{sel.div === 1 ? '' : 'S'}
+        {selected === contested && pv.defenseAdded > 0 ? ` (+${pv.defenseAdded} BY ENEMY DOCTRINE THIS ROUND)` : ''}
+      </p>
+      <p className="tt-insp-line tt-dim">{selRole}</p>
+      {slotLabel ? (
+        <div className="tt-stepper" role="group" aria-label={`${slotLabel}, ${SECTOR_NAMES[selected]}`}>
+          <span className="tt-step-label">{slotLabel}</span>
+          <div className="tt-step-row">
+            <Action
+              onClick={() => adjust(selected, -1)}
+              disabled={amount === 0 || !!s.result}
+              label={`Remove one division from ${SECTOR_NAMES[selected]}`}
+              testId={`sector-minus-${selected}`}
+            >
+              −
+            </Action>
+            <output className="tt-step-value" aria-live="off">
+              +{amount}
+            </output>
+            <Action
+              onClick={() => adjust(selected, 1)}
+              disabled={!canAdd(selected)}
+              label={`Add one division to ${SECTOR_NAMES[selected]}`}
+              testId={`sector-plus-${selected}`}
+            >
+              +
+            </Action>
+            <Action onClick={() => commitAll(selected)} disabled={!canAdd(selected)} testId="commit-all">
+              COMMIT ALL
+            </Action>
+          </div>
+          {addReason && <span className="gs-reason">{addReason}</span>}
+        </div>
+      ) : (
+        <p className="tt-insp-line tt-dim">NO ORDERS POSSIBLE HERE.</p>
+      )}
+    </Panel>
+  )
+
+  const frontMap = (
+    <div className="tt-front-wrap">
+      <ol className="tt-front" aria-label="Front, your capital to enemy capital" data-testid="front-map">
+        {s.sectors.map((x, i) => {
+          const mine = x.owner === 'US'
+          const pend = amountAt(i)
+          const label = `${SECTOR_NAMES[i]}, ${mine ? 'yours' : 'enemy'}, ${x.div} divisions${pend ? `, ${pend} ordered` : ''}${
+            i === edge ? ', your edge' : ''
+          }${i === contested ? ', contested' : ''}`
+          return (
+            <li key={i} className="tt-node-li">
+              <button
+                type="button"
+                className={`tt-node ${mine ? 'is-us' : 'is-ai'}${i === selected ? ' is-selected' : ''}${i === contested ? ' is-contested' : ''}${
+                  i === edge ? ' is-edge' : ''
+                }`}
+                aria-pressed={i === selected}
+                aria-label={label}
+                onClick={() => {
+                  setSelected(i)
+                  cue.select()
                 }}
                 data-testid={`sector-${i}`}
               >
-                <div className={mine ? 'wg-amber' : 'wg-red'}>
-                  {isCapital ? '* ' : ''}
-                  {SECTORS[i]}
-                </div>
-                <div className="wg-dim">{mine ? 'HELD' : 'ENEMY'}</div>
-                <div>US {s.usDiv}</div>
-                <div className="wg-red">AI {s.aiDiv}</div>
-                {canReinforce && (
-                  <div
-                    style={{
-                      display: 'flex',
-                      gap: '0.2rem',
-                      alignItems: 'center',
-                      marginTop: '0.2rem',
-                    }}
-                  >
-                    <button
-                      type="button"
-                      className="wg-opt"
-                      style={{ border: '1px solid rgba(108,182,255,0.4)' }}
-                      data-testid={`sector-minus-${i}`}
-                      onClick={() => adjust(i, -1)}
-                    >
-                      -
-                    </button>
-                    <span className="wg-amber">+{staged}</span>
-                    <button
-                      type="button"
-                      className="wg-opt"
-                      style={{ border: '1px solid rgba(108,182,255,0.4)' }}
-                      data-testid={`sector-plus-${i}`}
-                      onClick={() => adjust(i, 1)}
-                    >
-                      +
-                    </button>
-                  </div>
-                )}
-                {!canReinforce && i === pressTarget && !outcome && (
-                  <div className="wg-dim" style={{ marginTop: '0.2rem' }}>
-                    CONTESTED
-                  </div>
-                )}
-              </div>
-            )
-          })}
-        </div>
-
-        <div className="wg-dim" style={{ marginBottom: '0.4rem' }}>
-          REINFORCE HELD SECTORS OR STAGE AN ASSAULT ON THE CONTESTED SECTOR
-          ({SECTORS[pressTarget]}), THEN ADVANCE.
-        </div>
-
-        {!outcome && (
-          <div className="wg-opts">
-            <button
-              type="button"
-              className="wg-opt wg-amber"
-              data-testid="resolve-turn"
-              style={{ border: '1px solid rgba(255,184,77,0.5)' }}
-              onClick={resolveTurn}
-            >
-              &gt; EXECUTE TURN (RESOLVE COMBAT)
-            </button>
-          </div>
-        )}
-
-        <div
-          className="wg-log"
-          data-testid="battle-log"
-          style={{ marginTop: '0.8rem', height: 'clamp(5rem,20vh,10rem)' }}
-        >
-          {log.map((l, i) => (
-            <span key={i} className={critLog && i >= log.length - 2 ? 'crit' : undefined}>
-              {l}
-            </span>
-          ))}
-        </div>
-
-        {outcome && (
-          <div style={{ marginTop: '1rem' }} data-testid="game-result">
-            <div
-              className={
-                outcome === 'win'
-                  ? 'wg-big wg-amber'
-                  : outcome === 'lose'
-                    ? 'wg-big wg-red'
-                    : 'wg-big'
-              }
-            >
-              {outcome === 'win'
-                ? 'THEATER WON. THE ENEMY CAPITAL IS YOURS.'
-                : outcome === 'lose'
-                  ? 'THEATER LOST. THE CAPITAL HAS FALLEN.'
-                  : 'STALEMATE. THE FRONT IS FROZEN IN PLACE.'}
-            </div>
-            <div className="wg-opts" style={{ marginTop: '0.6rem' }}>
-              <button
-                type="button"
-                className="wg-opt wg-amber"
-                data-testid="play-again"
-                onClick={reset}
-                autoFocus
-              >
-                &gt; PLAY AGAIN
+                <span className="tt-node-name">{SECTOR_SHORT[i]}</span>
+                <span className="tt-node-owner">{i === 0 || i === 4 ? 'CAPITAL' : mine ? 'YOURS' : 'ENEMY'}</span>
+                <span className="tt-node-div">{x.div}</span>
+                <span className="tt-node-pend">{pend ? `+${pend}` : ' '}</span>
+                <span className="tt-node-mark">{i === edge ? 'EDGE' : i === contested ? 'CONTEST' : ' '}</span>
               </button>
-            </div>
-          </div>
-        )}
-
-        <div className="wg-opts" style={{ marginTop: '1.2rem' }}>
-          <button
-            type="button"
-            className="wg-opt"
-            data-testid="game-exit"
-            onClick={onExit}
-          >
-            &gt; EXIT TO GAMES
-          </button>
-        </div>
+            </li>
+          )
+        })}
+      </ol>
+      <div className="tt-axis" aria-hidden="true">
+        <span className="tt-us">YOU</span>
+        <span>FRONT LINE BETWEEN {SECTOR_SHORT[edge]} AND {SECTOR_SHORT[contested]}</span>
+        <span className="tt-ai">ENEMY</span>
       </div>
     </div>
+  )
+
+  const previewPanel = !s.result && (
+    <Panel title="BATTLE PREVIEW" className="tt-preview">
+      {orders.advance ? (
+        <>
+          <p>
+            ADVANCE ON {SECTOR_NAMES[contested]}: EDGE {pv.edgeForce} + ASSAULT {pv.assault} = <b>{pv.force}</b>, PLUS ROLL 0-3 →{' '}
+            <b>
+              {pv.atkMin}-{pv.atkMax}
+            </b>
+            .
+          </p>
+          <p>
+            DEFENSE: {pv.defenseNow} HELD + {pv.defenseAdded} BY DOCTRINE + {pv.bonus} {contested === AI_CAPITAL ? 'CAPITAL' : 'LINE'} ={' '}
+            <b>{pv.defense}</b>, PLUS ROLL 0-3 →{' '}
+            <b>
+              {pv.defMin}-{pv.defMax}
+            </b>
+            .
+          </p>
+          <p className={pv.chance >= 0.5 ? 'tt-us' : 'tt-ai'}>BREAKTHROUGH CHANCE {pct(pv.chance)}.</p>
+        </>
+      ) : (
+        <p>
+          HOLD: NO ASSAULT. EDGE GARRISON {pv.edgeForce} FACES {pv.defenders} ENEMY.{' '}
+          {pv.counterIfHeld
+            ? `ENEMY WILL COUNTERATTACK (THRESHOLD ${pv.edgeForce + COUNTER_MARGIN[s.difficulty]}).`
+            : `NO COUNTERATTACK UNLESS THE ENEMY REACHES ${pv.edgeForce + COUNTER_MARGIN[s.difficulty]}.`}
+        </p>
+      )}
+      <p className="tt-dim">
+        ENEMY DOCTRINE {doctrine.name}: {allocText(pv.aiAlloc)} THIS ROUND.
+      </p>
+    </Panel>
+  )
+
+  const ordersPanel = !s.result && (
+    <Panel title="ORDERS">
+      <ActionBar label="Order">
+        <Action onClick={() => setAdvance(true)} pressed={orders.advance} shortcut="A" testId="order-advance">
+          ADVANCE
+        </Action>
+        <Action onClick={() => setAdvance(false)} pressed={!orders.advance} shortcut="H" testId="order-hold">
+          HOLD
+        </Action>
+      </ActionBar>
+      <p className="tt-dim tt-orders-sum">
+        PLACED: {allocText(orders.alloc, orders.assault)}. {available > 0 ? `${available} UNPLACED, CARRIES OVER.` : 'RESERVE FULLY PLACED.'}
+      </p>
+      <ActionBar label="Clear orders">
+        <Action onClick={clear} disabled={used === 0} reason={used === 0 ? 'NOTHING PLACED' : undefined} testId="clear-orders" shortcut="C">
+          CLEAR ALL ORDERS
+        </Action>
+      </ActionBar>
+      <ActionBar label="Execute">
+        <Action variant="primary" onClick={execute} disabled={!!problem} reason={problem ?? undefined} shortcut="X" testId="resolve-turn">
+          EXECUTE ROUND {s.round}
+        </Action>
+      </ActionBar>
+    </Panel>
+  )
+
+  const result = s.result && (
+    <GameResult
+      outcome={s.result.outcome}
+      headline={resultText(s.result).headline}
+      reason={resultText(s.result).reason}
+      metrics={[
+        { label: 'SECTORS', value: `${s.result.usHeld}-${s.result.aiHeld}` },
+        { label: 'ROUNDS', value: s.round - 1 },
+        { label: 'LOST', value: `${s.lost.us}/${s.lost.ai}`, title: 'Divisions lost: yours / enemy' },
+        { label: 'RECORD', value: fmtWLD(record) },
+      ]}
+    >
+      <Action variant="primary" onClick={() => restart()} testId="play-again" autoFocus>
+        NEW CAMPAIGN
+      </Action>
+      <Action onClick={onExit}>EXIT TO GAMES</Action>
+    </GameResult>
+  )
+
+  const ledger = last && (last.assaultBattle || last.counter) && (
+    <Panel title={`ROUND ${last.round} LEDGER`} className="tt-ledger">
+      {[last.assaultBattle, last.counter].filter((b): b is BattleReport => !!b).map((b) => (
+        <table key={b.attacker} className="tt-table">
+          <caption>
+            {b.attacker === 'US' ? 'ASSAULT' : 'COUNTERATTACK'} · {SECTOR_SHORT[b.target]} · {b.result.toUpperCase()}
+          </caption>
+          <thead>
+            <tr>
+              <th scope="col"></th>
+              <th scope="col">{b.attacker === 'US' ? 'YOU' : 'ENEMY'}</th>
+              <th scope="col">{b.attacker === 'US' ? 'ENEMY' : 'YOU'}</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <th scope="row">COMMITTED</th>
+              <td>{b.committed.attacker}</td>
+              <td>{b.committed.defender}</td>
+            </tr>
+            <tr>
+              <th scope="row">LOST</th>
+              <td>{b.lost.attacker}</td>
+              <td>{b.lost.defender}</td>
+            </tr>
+            <tr>
+              <th scope="row">{b.result === 'breakthrough' ? 'ADVANCED / FELL BACK' : 'WITHDREW'}</th>
+              <td>{b.result === 'breakthrough' ? b.transferred : b.withdrawn}</td>
+              <td>{b.result === 'breakthrough' ? b.retreated : '-'}</td>
+            </tr>
+            <tr>
+              <th scope="row">REMAINING IN PLACE</th>
+              <td>{b.result === 'breakthrough' ? b.remaining.target : b.remaining.from}</td>
+              <td>{b.result === 'breakthrough' ? 0 : b.remaining.target}</td>
+            </tr>
+          </tbody>
+        </table>
+      ))}
+      <p className="tt-dim">
+        TOTAL FORCES · YOU {last.us.before} − {last.us.lost} + {last.us.reinforced} = {last.us.after} · ENEMY {last.ai.before} −{' '}
+        {last.ai.lost} + {last.ai.reinforced} = {last.ai.after} · {reconciles(last.us) && reconciles(last.ai) ? 'RECONCILED' : 'MISMATCH'}
+      </p>
+    </Panel>
+  )
+
+  return (
+    <GameShell
+      slug={SLUG}
+      title="THEATERWIDE TACTICAL WARFARE"
+      objective={`TAKE THE ENEMY CAPITAL, OR HOLD 3 OF 5 SECTORS WHEN ROUND ${MAX_ROUNDS} ENDS.`}
+      phase={phase}
+      phaseTone={s.result ? (s.result.outcome === 'win' ? 'amber' : 'red') : 'amber'}
+      metrics={metrics}
+      help={help}
+      onRestart={() => restart()}
+      inProgress={s.round > 1 && !s.result}
+      restartLabel="NEW CAMPAIGN"
+      onExit={onExit}
+      layout="board"
+      toolbar={
+        <>
+          <Segmented label="ENEMY" value={difficulty} options={DIFFS} onChange={chooseDifficulty} testId="difficulty" />
+          {pendingDiff && <span className="tt-note">APPLIES ON NEW CAMPAIGN</span>}
+        </>
+      }
+      announce={log.events[log.events.length - 1]?.text}
+      side={
+        <>
+          {result}
+          {ordersPanel}
+          {previewPanel}
+        </>
+      }
+      report={
+        <>
+          {ledger}
+          <GameReport events={log.events.length ? log.events : [{ id: 0, text: `THEATER COMMAND ONLINE. ENEMY DOCTRINE: ${doctrine.name}.` }]} />
+        </>
+      }
+    >
+      {frontMap}
+      {inspector}
+    </GameShell>
   )
 }
 

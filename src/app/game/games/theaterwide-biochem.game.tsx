@@ -1,458 +1,430 @@
-// THEATERWIDE BIOTOXIC AND CHEMICAL WARFARE. A WOPR escalation and deterrence
-// simulation. Five regions run along a shared border; you hold the near flank,
-// the AI holds the far flank, and the center is contested. Each turn you and the
-// AI each choose ONE action per side: DEPLOY an agent on a region (contaminates
-// it and seeds spread to neighbors), DEFEND a region (masks and decon suppress
-// contamination), or HOLD. Contamination creeps across adjacent regions every
-// turn. Keep your population above the survival threshold while pushing the enemy
-// below theirs to WIN; mutual collapse is a LOSE. Deploying invites retaliation.
-// The only truly safe move is not to play, but the game is fully playable.
-import { useMemo, useState } from 'react'
+// THEATERWIDE BIOTOXIC AND CHEMICAL WARFARE. A twelve-turn deterrence
+// simulation over five linked regions: DEPLOY, DEFEND or HOLD each turn against
+// a WOPR whose declared posture follows a persistent escalation level. Rules
+// live in engines/theaterwide-biochem.ts (pure, fixture-tested).
+// Design: docs/games-design-review.md §14.
+import { useMemo, useRef, useState } from 'react'
 import type { GameEntry, GameProps } from './types'
+import { Action, ActionBar, Bar, GameReport, GameResult, GameShell, Panel, type Metric } from './ui/GameShell'
+import { cue, fmtWLD, newSeed, rng, useEventLog, useGameKeys, useGameRecords, type WLD } from './hooks'
+import {
+  AI_DECON_AT,
+  CEASEFIRE_MARGIN,
+  DECAY,
+  MAX_ESCALATION,
+  MAX_TURNS,
+  REGION_NAMES,
+  REGION_SHORT,
+  REGION_SIDE,
+  RESTRAINT_TURNS,
+  SPREAD_FROM,
+  START_POP,
+  SURVIVE_AT,
+  actionProblem,
+  damageOf,
+  debrief,
+  eligibleTargets,
+  headline,
+  initialState,
+  playTurn,
+  posture,
+  spreadPlan,
+  type ActionKind,
+  type State,
+  type TurnReport,
+} from './engines/theaterwide-biochem'
+import './styles/theaterwide-biochem.css'
 
-type Side = 'US' | 'AI'
-type Action = 'DEPLOY' | 'DEFEND' | 'HOLD'
-type Outcome = 'win' | 'lose' | 'stalemate' | null
-
-const REGIONS: readonly string[] = [
-  'NORTH BASIN',
-  'HOME HEARTLAND',
-  'CENTRAL CORRIDOR',
-  'ENEMY HEARTLAND',
-  'SOUTH FRONTIER',
-]
-// Which side's population each region feeds. The corridor is neutral ground; its
-// contamination still spreads but costs no one population directly.
-const REGION_SIDE: readonly (Side | 'N')[] = ['US', 'US', 'N', 'AI', 'AI']
-
-const START_POP = 100
-const SURVIVE_THRESHOLD = 40 // below this a side has collapsed
-const MAX_TURNS = 12
-const START_STOCKPILE = 5
-
-interface Region {
-  contam: number // 0..100 contamination level
-  defended: boolean // decon active this turn, resists spread and deploy
-}
-
-function initialRegions(): Region[] {
-  return REGIONS.map(() => ({ contam: 0, defended: false }))
-}
-
-function roll(max: number): number {
-  return Math.floor(Math.random() * max)
-}
-
-function neighbors(i: number): number[] {
-  const out: number[] = []
-  if (i > 0) out.push(i - 1)
-  if (i < REGIONS.length - 1) out.push(i + 1)
-  return out
-}
+const SLUG = 'theaterwide-biochem'
+const KINDS: readonly ActionKind[] = ['DEPLOY', 'DEFEND', 'HOLD']
+const sideName = (i: number): string => (REGION_SIDE[i] === 'US' ? 'FRIENDLY' : REGION_SIDE[i] === 'AI' ? 'ENEMY' : 'NEUTRAL')
+const sideClass = (i: number): string => (REGION_SIDE[i] === 'US' ? 'is-us' : REGION_SIDE[i] === 'AI' ? 'is-ai' : 'is-n')
+const pct = (x: number): string => `${Math.round(x * 100)}%`
+const names = (ts: readonly number[]): string => ts.map((t) => REGION_NAMES[t]).join(' + ')
 
 function TheaterwideBiochem({ onExit }: GameProps) {
-  const [regions, setRegions] = useState<Region[]>(initialRegions)
-  const [usPop, setUsPop] = useState(START_POP)
-  const [aiPop, setAiPop] = useState(START_POP)
-  const [usStock, setUsStock] = useState(START_STOCKPILE)
-  const [aiStock, setAiStock] = useState(START_STOCKPILE)
-  const [turn, setTurn] = useState(1)
-  const [action, setAction] = useState<Action>('HOLD')
-  const [targetRegion, setTargetRegion] = useState<number | null>(null)
-  const [log, setLog] = useState<string[]>([
-    'DETERRENCE WATCH ACTIVE. ESCALATION INVITES RETALIATION.',
-  ])
-  const [critLog, setCritLog] = useState(false)
-  const [outcome, setOutcome] = useState<Outcome>(null)
+  const rec = useGameRecords(SLUG)
+  const [game, setGame] = useState<{ state: State; id: number }>(() => ({ state: initialState(), id: newSeed() }))
+  const rand = useRef(rng(game.id))
+  const [kind, setKind] = useState<ActionKind>('HOLD')
+  const [target, setTarget] = useState<number | null>(null)
+  const [inspect, setInspect] = useState(1)
+  const [last, setLast] = useState<TurnReport | null>(null)
+  const log = useEventLog()
 
-  // Regions the player may act on. DEPLOY targets enemy or neutral ground;
-  // DEFEND targets your own or neutral ground.
-  const selectable = useMemo(() => {
-    if (action === 'DEPLOY') {
-      return REGIONS.map((_, i) => i).filter(
-        (i) => REGION_SIDE[i] === 'AI' || REGION_SIDE[i] === 'N',
-      )
-    }
-    if (action === 'DEFEND') {
-      return REGIONS.map((_, i) => i).filter(
-        (i) => REGION_SIDE[i] === 'US' || REGION_SIDE[i] === 'N',
-      )
-    }
-    return []
-  }, [action])
+  const s = game.state
+  const action = { kind, target: kind === 'HOLD' ? null : target }
+  const problem = actionProblem(s, action)
+  const eligible = useMemo(() => (kind === 'HOLD' ? [] : eligibleTargets(kind)), [kind])
+  const pos = posture(s.escalation)
+  // Spread under current conditions, with your pending DEFEND applied.
+  const defendedNow = s.regions.map((_, i) => kind === 'DEFEND' && target === i)
+  const plan = spreadPlan(
+    s.regions.map((r) => r.contam),
+    defendedNow,
+  )
 
-  const reset = (): void => {
-    setRegions(initialRegions())
-    setUsPop(START_POP)
-    setAiPop(START_POP)
-    setUsStock(START_STOCKPILE)
-    setAiStock(START_STOCKPILE)
-    setTurn(1)
-    setAction('HOLD')
-    setTargetRegion(null)
-    setLog(['DETERRENCE WATCH ACTIVE. ESCALATION INVITES RETALIATION.'])
-    setCritLog(false)
-    setOutcome(null)
+  const restart = (): void => {
+    const id = newSeed()
+    rand.current = rng(id)
+    setGame({ state: initialState(), id })
+    setKind('HOLD')
+    setTarget(null)
+    setInspect(1)
+    setLast(null)
+    log.reset()
   }
 
-  const chooseAction = (a: Action): void => {
-    if (outcome) return
-    setAction(a)
-    setTargetRegion(null)
+  const chooseKind = (k: ActionKind): void => {
+    if (s.result) return
+    if (k === 'DEPLOY' && s.usStock <= 0) return cue.deny()
+    setKind(k)
+    // Keep the inspected region as the target when it is eligible.
+    setTarget(k !== 'HOLD' && eligibleTargets(k).includes(inspect) ? inspect : null)
+    cue.select()
+  }
+  const pickRegion = (i: number): void => {
+    setInspect(i)
+    if (!s.result && kind !== 'HOLD' && eligibleTargets(kind).includes(i)) setTarget(i)
+    cue.select()
   }
 
-  const needsTarget = action === 'DEPLOY' || action === 'DEFEND'
-  const canExecute = !needsTarget || targetRegion !== null
+  const execute = (): void => {
+    if (problem) return cue.deny()
+    const { state, report } = playTurn(s, action, rand.current)
+    setGame((g) => ({ ...g, state }))
+    setLast(report)
+    setKind('HOLD')
+    setTarget(null)
 
-  const executeTurn = (): void => {
-    if (outcome || !canExecute) return
-    if (action === 'DEPLOY' && usStock <= 0) return
-
-    const next: Region[] = regions.map((r) => ({ ...r, defended: false }))
-    const lines: string[] = []
-    let crit = false
-    let usStockNext = usStock
-    let aiStockNext = aiStock
-    let aiProvoked = false
-
-    // 1) Player action.
-    if (action === 'DEPLOY' && targetRegion !== null) {
-      usStockNext -= 1
-      const r = next[targetRegion]!
-      const add = 45 + roll(20)
-      r.contam = Math.min(100, r.contam + add)
-      crit = true
-      aiProvoked = true
-      lines.push(`YOU DEPLOY AGENT ON ${REGIONS[targetRegion]} (+${add} CONTAM).`)
-    } else if (action === 'DEFEND' && targetRegion !== null) {
-      const r = next[targetRegion]!
-      r.defended = true
-      const relief = 25 + roll(15)
-      r.contam = Math.max(0, r.contam - relief)
-      lines.push(`DECON TEAMS SCRUB ${REGIONS[targetRegion]} (-${relief} CONTAM).`)
-    } else {
-      lines.push('YOU HOLD. NO AGENTS RELEASED THIS TURN.')
-    }
-
-    // 2) AI action. It mirrors deterrence: if provoked (you deployed) and it has
-    // stockpile, it retaliates on your heartland. Otherwise it defends its worst
-    // region, or probes the corridor when stable. Retaliation is the escalation
-    // engine the irony rides on.
-    let aiTarget: number | null = null
-    const aiHeartland = 3
-    const usHeartland = 1
-    const aiWorst = next
-      .map((r, i) => ({ i, c: r.contam }))
-      .filter((x) => REGION_SIDE[x.i] === 'AI')
-      .sort((a, b) => b.c - a.c)[0]
-
-    if (aiProvoked && aiStockNext > 0 && roll(10) > 1) {
-      // Retaliate against the player's heartland or the just-hit region.
-      aiTarget = usHeartland
-      aiStockNext -= 1
-      const add = 45 + roll(20)
-      next[aiTarget]!.contam = Math.min(100, next[aiTarget]!.contam + add)
-      crit = true
-      lines.push(`ENEMY RETALIATES ON ${REGIONS[aiTarget]} (+${add} CONTAM).`)
-    } else if (aiWorst && aiWorst.c >= 35) {
-      // Defend its most contaminated region.
-      next[aiWorst.i]!.defended = true
-      const relief = 25 + roll(15)
-      next[aiWorst.i]!.contam = Math.max(0, next[aiWorst.i]!.contam - relief)
-      lines.push(`ENEMY DECONTAMINATES ${REGIONS[aiWorst.i]}.`)
-    } else if (aiStockNext > 0 && roll(10) > 4) {
-      // Opportunistic first strike on the corridor or your heartland.
-      aiTarget = roll(2) === 0 ? 2 : usHeartland
-      aiStockNext -= 1
-      const add = 35 + roll(20)
-      next[aiTarget]!.contam = Math.min(100, next[aiTarget]!.contam + add)
-      crit = true
-      lines.push(`ENEMY DEPLOYS AGENT ON ${REGIONS[aiTarget]} (+${add} CONTAM).`)
-    } else {
-      lines.push('ENEMY HOLDS. BORDER QUIET.')
-    }
-    void aiHeartland
-
-    // 3) Contamination spreads to adjacent regions. Defended regions resist both
-    // outbound and inbound spread.
-    const spread: number[] = next.map(() => 0)
-    next.forEach((r, i) => {
-      if (r.contam < 20 || r.defended) return
-      for (const n of neighbors(i)) {
-        if (next[n]!.defended) continue
-        spread[n] = (spread[n] ?? 0) + Math.floor(r.contam / 6)
-      }
+    const ev: { text: string; kind?: 'info' | 'good' | 'bad' | 'warn' }[] = []
+    const you = report.us
+    ev.push({
+      text:
+        you.kind === 'HOLD'
+          ? `TURN ${report.turn}. YOU HOLD. NO AGENT RELEASED.`
+          : you.kind === 'DEFEND'
+            ? `TURN ${report.turn}. YOU DEFEND ${REGION_NAMES[you.target!]}: SCRUBBED -${report.scrubs.find((x) => x.by === 'US')?.amount ?? 0}, INCOMING HALVED, SPREAD BLOCKED.`
+            : `TURN ${report.turn}. YOU DEPLOY ON ${REGION_NAMES[you.target!]}.`,
+      kind: you.kind === 'DEPLOY' ? 'warn' : 'info',
     })
-    next.forEach((r, i) => {
-      if (spread[i]! > 0 && !r.defended) {
-        r.contam = Math.min(100, r.contam + spread[i]!)
-      }
-    })
-    if (spread.some((s) => s > 0)) {
-      lines.push('CONTAMINATION CREEPS ACROSS THE BORDER.')
+    for (const d of report.deployments) {
+      ev.push({
+        text: `${d.by === 'US' ? 'YOUR AGENT' : 'WOPR AGENT'} ON ${REGION_NAMES[d.target]}: +${d.applied}${d.halved ? ` (HALVED FROM ${d.rolled} BY DEFENSE)` : ''}.`,
+        kind: d.by === 'AI' ? 'bad' : 'warn',
+      })
     }
-
-    // 4) Natural decay of undefended contamination (agents degrade).
-    next.forEach((r) => {
-      if (!r.defended) r.contam = Math.max(0, r.contam - 5)
+    for (const sc of report.scrubs.filter((x) => x.by === 'AI')) ev.push({ text: `WOPR DECONTAMINATES ${REGION_NAMES[sc.target]} (-${sc.amount}).` })
+    if (report.ai.every((a) => a.kind === 'HOLD')) ev.push({ text: `WOPR HOLDS (${report.posture.name}).` })
+    const spreadTotal = report.spread.reduce((a, b) => a + b.amount, 0)
+    if (spreadTotal) ev.push({ text: `SPREAD MOVED ${spreadTotal} CONTAMINATION BETWEEN NEIGHBORS.` })
+    ev.push({
+      text: `CASUALTIES: FRIENDLY -${report.damage.us}, ENEMY -${report.damage.ai}. ESCALATION ${report.escalation.before} → ${report.escalation.after}.`,
+      kind: report.damage.us > report.damage.ai ? 'bad' : 'info',
     })
+    if (state.result) ev.push({ text: headline(state.result), kind: state.result.outcome === 'win' ? 'good' : state.result.outcome === 'lose' ? 'bad' : 'warn' })
+    log.push(...ev)
 
-    // 5) Population attrition from contamination in each side's regions.
-    let usDamage = 0
-    let aiDamage = 0
-    next.forEach((r, i) => {
-      const dmg = Math.floor(r.contam / 12)
-      if (REGION_SIDE[i] === 'US') usDamage += dmg
-      else if (REGION_SIDE[i] === 'AI') aiDamage += dmg
-    })
-    const usPopNext = Math.max(0, usPop - usDamage)
-    const aiPopNext = Math.max(0, aiPop - aiDamage)
-    if (usDamage > 0 || aiDamage > 0) {
-      lines.push(
-        `CASUALTIES: FRIENDLY -${usDamage} POP, ENEMY -${aiDamage} POP.`,
-      )
-    }
-    void aiTarget
-
-    // 6) Outcome checks.
-    let nextOutcome: Outcome = null
-    const usDown = usPopNext < SURVIVE_THRESHOLD
-    const aiDown = aiPopNext < SURVIVE_THRESHOLD
-    if (usDown && aiDown) {
-      nextOutcome = 'lose'
-      lines.push('MUTUAL CONTAMINATION. BOTH POPULATIONS COLLAPSE. NO WINNER.')
-    } else if (aiDown) {
-      nextOutcome = 'win'
-      lines.push('ENEMY POPULATION BELOW SURVIVAL LINE. YOU PREVAIL.')
-    } else if (usDown) {
-      nextOutcome = 'lose'
-      lines.push('YOUR POPULATION BELOW SURVIVAL LINE. YOU COLLAPSE.')
-    } else if (turn >= MAX_TURNS) {
-      if (usPopNext > aiPopNext + 10) {
-        nextOutcome = 'win'
-        lines.push('CEASEFIRE. YOU HOLD THE HEALTHIER POPULATION. VICTORY.')
-      } else if (aiPopNext > usPopNext + 10) {
-        nextOutcome = 'lose'
-        lines.push('CEASEFIRE. THE ENEMY ENDURES BETTER. DEFEAT.')
-      } else {
-        nextOutcome = 'stalemate'
-        lines.push('CEASEFIRE. BOTH SIDES SCARRED AND STANDING. STALEMATE.')
-      }
-    }
-
-    setRegions(next)
-    setUsPop(usPopNext)
-    setAiPop(aiPopNext)
-    setUsStock(usStockNext)
-    setAiStock(aiStockNext)
-    setTurn((t) => t + 1)
-    setAction('HOLD')
-    setTargetRegion(null)
-    setLog((prev) => [...prev.slice(-6), ...lines])
-    setCritLog(crit)
-    setOutcome(nextOutcome)
+    if (state.result) {
+      const o = state.result.outcome
+      if (o === 'win') cue.win()
+      else if (o === 'lose') cue.lose()
+      else cue.draw()
+      rec.recordOnce(String(game.id), () => {
+        rec.tally('wld', o)
+        rec.update<number>('bestPop', (p) => Math.max(p ?? 0, state.usPop))
+      })
+    } else if (report.escalation.after >= 4 && report.escalation.before < 4) cue.alarm()
+    else if (report.deployments.some((d) => d.by === 'AI')) cue.hit()
+    else if (report.deployments.length) cue.boom()
+    else cue.tick()
   }
 
-  const contamClass = (c: number): string =>
-    c >= 70 ? 'wg-red' : c >= 30 ? 'wg-amber' : 'wg-dim'
+  useGameKeys((k) => {
+    if (k === 'ArrowLeft' || k === 'ArrowUp') return setInspect((i) => Math.max(0, i - 1)), true
+    if (k === 'ArrowRight' || k === 'ArrowDown') return setInspect((i) => Math.min(4, i + 1)), true
+    if (s.result) return
+    if (k === '1') return chooseKind('DEPLOY'), true
+    if (k === '2') return chooseKind('DEFEND'), true
+    if (k === '3') return chooseKind('HOLD'), true
+    if (k === 't' || k === 'T') return pickRegion(inspect), true
+    if (k === 'x' || k === 'X') return execute(), true
+  })
+
+  // ---------------------------------------------------------------- view
+  const record = rec.get<WLD | undefined>('wld', undefined)
+  const best = rec.get<number | undefined>('bestPop', undefined)
+  const turnShown = Math.min(s.turn, MAX_TURNS)
+  const metrics: Metric[] = [
+    { label: 'TURN', value: `${turnShown}/${MAX_TURNS}` },
+    { label: 'STOCKPILE', value: s.usStock, tone: 'amber' },
+    { label: 'ENEMY STOCKPILE', value: s.aiStock, tone: 'red' },
+    { label: 'ESCALATION', value: `${s.escalation}/${MAX_ESCALATION}`, tone: s.escalation >= 3 ? 'red' : 'normal' },
+    { label: 'RECORD', value: fmtWLD(record), tone: 'dim' },
+    ...(best !== undefined ? [{ label: 'BEST POP', value: best, tone: 'dim' as const }] : []),
+  ]
+
+  const phase = s.result
+    ? 'CONFLICT OVER'
+    : kind === 'HOLD'
+      ? `TURN ${s.turn}/${MAX_TURNS}. SURVIVE AT ${SURVIVE_AT} OR MORE. CHOOSE DEPLOY, DEFEND OR HOLD.`
+      : target === null
+        ? `TURN ${s.turn}. ${kind}: SELECT A TARGET REGION.`
+        : `TURN ${s.turn}. ${kind} ${REGION_NAMES[target]}. EXECUTE TURN.`
+
+  const help = (
+    <>
+      <p>
+        FIVE LINKED REGIONS. YOU HOLD NORTH BASIN AND HOME HEARTLAND; THE ENEMY HOLDS ENEMY HEARTLAND AND SOUTH FRONTIER; THE
+        CENTRAL CORRIDOR IS NEUTRAL. EACH SIDE STARTS WITH {START_POP} POPULATION.
+      </p>
+      <ul>
+        <li>SURVIVE AT {SURVIVE_AT} OR MORE. A SIDE BELOW {SURVIVE_AT} HAS COLLAPSED: ENEMY ONLY = WIN, YOU ONLY = LOSS, BOTH = MUTUAL COLLAPSE (LOSS).</li>
+        <li>
+          CEASEFIRE AFTER TURN {MAX_TURNS}: A POPULATION LEAD OF MORE THAN {CEASEFIRE_MARGIN} WINS FOR THAT SIDE; OTHERWISE PARITY (DRAW).
+          SURVIVING ALONE DOES NOT WIN.
+        </li>
+        <li>DEPLOY (SPENDS 1 STOCKPILE): +40 TO +59 CONTAMINATION ON AN ENEMY OR NEUTRAL REGION.</li>
+        <li>
+          DEFEND A FRIENDLY OR NEUTRAL REGION FOR ONE TURN: SCRUBS 25 TO 39, HALVES ANY AGENT DEPLOYED INTO IT THAT TURN, AND IT
+          NEITHER RECEIVES NOR SENDS SPREAD. NO STOCKPILE NEEDED.
+        </li>
+        <li>
+          TURN ORDER: DEFENSES, DEPLOYMENTS, SPREAD (EVERY UNDEFENDED REGION AT {SPREAD_FROM}+ ADDS LEVEL/6 TO EACH UNDEFENDED NEIGHBOR),
+          DECAY (-{DECAY} UNDEFENDED), CASUALTIES (LEVEL/12 PER REGION A SIDE HOLDS).
+        </li>
+        <li>
+          ESCALATION (0-{MAX_ESCALATION}) PERSISTS: +2 WHEN YOU DEPLOY, +1 WHEN WOPR DEPLOYS, -1 AFTER {RESTRAINT_TURNS} CONSECUTIVE
+          TURNS WITHOUT YOUR DEPLOYMENT. IT SETS WOPR'S DECLARED POSTURE FOR THE NEXT TURN: CALM 5%, WARY 15%, GUARDED 35% STRIKE
+          CHANCE ON THE CORRIDOR; HOSTILE 60% ON HOME HEARTLAND; RETALIATORY 85-95% SALVO ON HOME HEARTLAND AND NORTH BASIN. WHEN IT
+          DOES NOT STRIKE IT DECONTAMINATES ITS WORST REGION AT {AI_DECON_AT}+. A LOW POSTURE IS NOT A GUARANTEE.
+        </li>
+        <li>WOPR CHOOSES AT THE SAME TIME AS YOU, FROM THE START-OF-TURN MAP. IT NEVER SEES YOUR CHOICE.</li>
+        <li>KEYS: 1 DEPLOY, 2 DEFEND, 3 HOLD, ARROWS INSPECT, T TARGET INSPECTED REGION, X EXECUTE.</li>
+      </ul>
+    </>
+  )
+
+  const popPanel = (
+    <Panel title="POPULATION · SURVIVE AT 40 OR MORE" className="bc-pop">
+      <Bar label="FRIENDLY" value={s.usPop} max={START_POP} tone={s.usPop < SURVIVE_AT ? 'red' : 'normal'} marker={SURVIVE_AT} markerLabel="Survival line 40" />
+      <Bar label="ENEMY" value={s.aiPop} max={START_POP} tone="red" marker={SURVIVE_AT} markerLabel="Survival line 40" />
+      <p className="bc-note">
+        AMBER MARK = {SURVIVE_AT}. CEASEFIRE NEEDS A LEAD OF MORE THAN {CEASEFIRE_MARGIN}. NOW:{' '}
+        {s.usPop === s.aiPop ? 'EVEN' : s.usPop > s.aiPop ? `YOU LEAD BY ${s.usPop - s.aiPop}` : `ENEMY LEADS BY ${s.aiPop - s.usPop}`}.
+      </p>
+    </Panel>
+  )
+
+  const posturePanel = (
+    <Panel title="WOPR DECLARED POSTURE" className="bc-posture">
+      <div className="bc-esc" role="meter" aria-label="Escalation" aria-valuemin={0} aria-valuemax={MAX_ESCALATION} aria-valuenow={s.escalation}>
+        {Array.from({ length: MAX_ESCALATION }, (_, i) => (
+          <span key={i} className={`bc-pip${i < s.escalation ? ' is-on' : ''}`} />
+        ))}
+        <span className="bc-esc-label">
+          {pos.name} · {s.escalation}/{MAX_ESCALATION}
+        </span>
+      </div>
+      <p>
+        {s.aiStock > 0
+          ? `${pct(pos.strike)} STRIKE CHANCE ON ${names(pos.targets)}${pos.targets.length > 1 ? ' (SALVO)' : ''}. OTHERWISE DECON ITS WORST REGION AT ${AI_DECON_AT}+, OR HOLD.`
+          : `ENEMY STOCKPILE EMPTY. IT CAN ONLY DECONTAMINATE OR HOLD.`}
+      </p>
+      <p className="bc-note">
+        RESTRAINT {s.restraint}/{RESTRAINT_TURNS}: {RESTRAINT_TURNS - s.restraint} MORE TURN{RESTRAINT_TURNS - s.restraint === 1 ? '' : 'S'} WITHOUT DEPLOYING LOWERS ESCALATION.
+        DEPLOYING RAISES IT BY 2.
+      </p>
+    </Panel>
+  )
+
+  const spreadOut = (i: number) => plan.filter((p) => p.from === i)
+  const spreadIn = (i: number) => plan.filter((p) => p.to === i)
+  const linkAt = (i: number) => ({
+    right: plan.find((p) => p.from === i && p.to === i + 1)?.amount ?? 0,
+    left: plan.find((p) => p.from === i + 1 && p.to === i)?.amount ?? 0,
+  })
+
+  const chain = (
+    <div className="bc-chain-wrap">
+      <ol className="bc-chain" aria-label="Regions, linked in a chain" data-testid="region-map">
+        {s.regions.map((r, i) => {
+          const isTarget = target === i && kind !== 'HOLD'
+          const canTarget = !s.result && eligible.includes(i)
+          const link = i < 4 ? linkAt(i) : null
+          return (
+            <li key={i} className="bc-li">
+              <button
+                type="button"
+                className={`bc-node ${sideClass(i)}${inspect === i ? ' is-inspect' : ''}${isTarget ? ' is-target' : ''}${canTarget ? ' is-eligible' : ''}`}
+                aria-pressed={inspect === i}
+                aria-label={`${REGION_NAMES[i]}, ${sideName(i).toLowerCase()}, contamination ${r.contam}${isTarget ? `, ${kind} target` : ''}`}
+                onClick={() => pickRegion(i)}
+                data-testid={`region-${i}`}
+              >
+                <span className="bc-node-name">{REGION_SHORT[i]}</span>
+                <span className="bc-node-side">{sideName(i)}</span>
+                <span className="bc-cbar" aria-hidden="true">
+                  <span className={`bc-cfill${r.contam >= 70 ? ' is-hot' : r.contam >= 30 ? ' is-warm' : ''}`} style={{ width: `${r.contam}%` }} />
+                </span>
+                <span className="bc-node-num">{r.contam}</span>
+                <span className="bc-node-mark">
+                  {isTarget ? (kind === 'DEFEND' ? 'DEFEND' : 'TARGET') : r.defended ? 'DECON LAST' : canTarget ? 'ELIGIBLE' : ''}
+                </span>
+              </button>
+              {link && (
+                <span className="bc-link" aria-hidden="true">
+                  <span className={`bc-flow bc-fwd${link.right ? '' : ' is-off'}`}>{link.right || 0}</span>
+                  <span className={`bc-flow bc-back${link.left ? '' : ' is-off'}`}>{link.left || 0}</span>
+                </span>
+              )}
+            </li>
+          )
+        })}
+      </ol>
+      <p className="bc-legend">CONTAMINATION 0-100 PER REGION. ARROWS: SPREAD EXPECTED NEXT TURN FROM CURRENT LEVELS (BEFORE NEW AGENTS).</p>
+    </div>
+  )
+
+  const ir = s.regions[inspect]!
+  const out = spreadOut(inspect)
+  const inn = spreadIn(inspect)
+  const inspector = (
+    <Panel title="SELECTED REGION" className="bc-inspector">
+      <div className="bc-insp-head">
+        <span className={`bc-${sideClass(inspect)}`}>{REGION_NAMES[inspect]}</span>
+        <span className="bc-tag">{sideName(inspect)}</span>
+      </div>
+      <Bar label="CONTAM" value={ir.contam} max={100} tone={ir.contam >= 70 ? 'red' : ir.contam >= 30 ? 'amber' : 'normal'} />
+      <p>
+        {REGION_SIDE[inspect] === 'N'
+          ? 'NEUTRAL: COSTS NO POPULATION, BUT SPREADS BOTH WAYS.'
+          : `COSTS ${sideName(inspect) === 'FRIENDLY' ? 'YOU' : 'THE ENEMY'} ${damageOf(ir.contam)} POPULATION PER TURN AT THIS LEVEL.`}
+      </p>
+      <p>
+        SPREAD OUT: {out.length ? out.map((p) => `+${p.amount} TO ${REGION_SHORT[p.to]}`).join(', ') : `NONE (UNDER ${SPREAD_FROM} OR DEFENDED)`}. IN:{' '}
+        {inn.length ? inn.map((p) => `+${p.amount} FROM ${REGION_SHORT[p.from]}`).join(', ') : 'NONE'}.
+      </p>
+      <p className="bc-note">
+        {kind === 'DEFEND' && target === inspect
+          ? 'DEFENSE ORDERED: SCRUB 25-39, INCOMING AGENT HALVED, NO SPREAD IN OR OUT THIS TURN.'
+          : ir.defended
+            ? 'WAS DEFENDED LAST TURN. DEFENSE LASTS ONE TURN.'
+            : 'NOT DEFENDED.'}
+      </p>
+    </Panel>
+  )
+
+  const actionPanel = !s.result && (
+    <Panel title="YOUR ACTION" className="bc-action">
+      <ActionBar label="Action">
+        {KINDS.map((k, n) => (
+          <Action
+            key={k}
+            onClick={() => chooseKind(k)}
+            pressed={kind === k}
+            disabled={k === 'DEPLOY' && s.usStock <= 0}
+            reason={k === 'DEPLOY' && s.usStock <= 0 ? 'STOCKPILE EMPTY' : undefined}
+            shortcut={String(n + 1)}
+            testId={`action-${k.toLowerCase()}`}
+          >
+            {k}
+          </Action>
+        ))}
+      </ActionBar>
+      <p className="bc-note">
+        {kind === 'DEPLOY'
+          ? `SPENDS 1 OF ${s.usStock} AGENTS. +40-59 ON THE TARGET. RAISES ESCALATION BY 2.`
+          : kind === 'DEFEND'
+            ? 'ONE TURN: SCRUB 25-39, HALVE INCOMING AGENT, BLOCK SPREAD.'
+            : 'NO ACTION. COUNTS TOWARD RESTRAINT.'}
+      </p>
+      {kind !== 'HOLD' && (
+        <div className="bc-targets" role="group" aria-label={`${kind} target`}>
+          <span className="bc-sub">TARGET ({kind === 'DEPLOY' ? 'ENEMY OR NEUTRAL' : 'FRIENDLY OR NEUTRAL'})</span>
+          <ActionBar label="Targets">
+            {eligible.map((i) => (
+              <Action key={i} onClick={() => pickRegion(i)} pressed={target === i} testId={`target-${i}`}>
+                {REGION_NAMES[i]}
+              </Action>
+            ))}
+          </ActionBar>
+        </div>
+      )}
+      <ActionBar label="Execute">
+        <Action variant="primary" onClick={execute} disabled={!!problem} reason={problem ?? undefined} shortcut="X" testId="execute-turn">
+          EXECUTE TURN {s.turn}
+        </Action>
+      </ActionBar>
+    </Panel>
+  )
+
+  const result = s.result && (
+    <GameResult
+      outcome={s.result.outcome}
+      headline={headline(s.result)}
+      reason={
+        <ul className="bc-debrief">
+          {debrief(s).map((l) => (
+            <li key={l}>{l}</li>
+          ))}
+        </ul>
+      }
+      metrics={[
+        { label: 'FRIENDLY', value: s.result.usPop, tone: s.result.usPop < SURVIVE_AT ? 'red' : 'normal' },
+        { label: 'ENEMY', value: s.result.aiPop, tone: 'red' },
+        { label: 'PEAK ESCALATION', value: s.peakEscalation },
+        { label: 'RECORD', value: fmtWLD(record) },
+      ]}
+    >
+      <Action variant="primary" onClick={restart} testId="play-again" autoFocus>
+        NEW SIMULATION
+      </Action>
+      <Action onClick={onExit}>EXIT TO GAMES</Action>
+    </GameResult>
+  )
+
+  const lastPanel = last && (
+    <Panel title={`TURN ${last.turn} CASUALTIES`} className="bc-last">
+      <p>
+        FRIENDLY -{last.damage.us} · ENEMY -{last.damage.ai} · ESCALATION {last.escalation.before} → {last.escalation.after}
+      </p>
+    </Panel>
+  )
 
   return (
-    <div className="wg-screen" data-testid="game-theaterwide-biochem">
-      <div className="wg-out" style={{ overflow: 'auto' }}>
-        <div className="wg-big">THEATERWIDE BIOTOXIC AND CHEMICAL WARFARE</div>
-        <div className="wg-dim" style={{ marginBottom: '0.6rem' }}>
-          WOPR DETERRENCE SIMULATION // STAY ABOVE THE SURVIVAL LINE ({SURVIVE_THRESHOLD})
-        </div>
-
-        <div
-          style={{
-            display: 'flex',
-            gap: '1.2rem',
-            flexWrap: 'wrap',
-            marginBottom: '0.6rem',
-          }}
-        >
-          <span>
-            FRIENDLY POP{' '}
-            <span className={usPop < SURVIVE_THRESHOLD ? 'wg-red' : 'wg-amber'}>
-              {usPop}
-            </span>
-          </span>
-          <span className="wg-dim">
-            ENEMY POP <span className="wg-red">{aiPop}</span>
-          </span>
-          <span className="wg-dim">STOCKPILE {usStock}</span>
-          <span className="wg-dim">ENEMY STOCKPILE ~{aiStock}</span>
-          <span className="wg-dim">
-            TURN {Math.min(turn, MAX_TURNS)}/{MAX_TURNS}
-          </span>
-        </div>
-
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: `repeat(${REGIONS.length}, 1fr)`,
-            gap: '0.3rem',
-            marginBottom: '0.6rem',
-          }}
-          data-testid="region-map"
-        >
-          {regions.map((r, i) => {
-            const owner = REGION_SIDE[i]
-            const sel = targetRegion === i
-            const canPick = !outcome && selectable.includes(i)
-            const border = sel
-              ? '2px solid rgba(255,184,77,0.9)'
-              : owner === 'US'
-                ? '1px solid rgba(108,182,255,0.6)'
-                : owner === 'AI'
-                  ? '1px solid rgba(255,92,92,0.5)'
-                  : '1px dashed rgba(127,176,224,0.5)'
-            return (
-              <button
-                key={i}
-                type="button"
-                disabled={!canPick}
-                onClick={() => canPick && setTargetRegion(i)}
-                data-testid={`region-${i}`}
-                style={{
-                  border,
-                  padding: '0.35rem',
-                  background: sel ? 'rgba(255,184,77,0.1)' : 'none',
-                  font: 'inherit',
-                  color: 'inherit',
-                  textAlign: 'left',
-                  cursor: canPick ? 'pointer' : 'default',
-                  fontSize: '0.78em',
-                }}
-              >
-                <div
-                  className={
-                    owner === 'US'
-                      ? 'wg-amber'
-                      : owner === 'AI'
-                        ? 'wg-red'
-                        : 'wg-dim'
-                  }
-                >
-                  {REGIONS[i]}
-                </div>
-                <div className="wg-dim">
-                  {owner === 'US' ? 'FRIENDLY' : owner === 'AI' ? 'ENEMY' : 'NEUTRAL'}
-                </div>
-                <div className={contamClass(r.contam)}>CONTAM {r.contam}</div>
-                {r.defended && <div className="wg-dim">[DECON]</div>}
-              </button>
-            )
-          })}
-        </div>
-
-        {!outcome && (
-          <>
-            <div className="wg-opts" data-testid="action-controls">
-              <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap' }}>
-                {(['DEPLOY', 'DEFEND', 'HOLD'] as const).map((a) => (
-                  <button
-                    key={a}
-                    type="button"
-                    className={action === a ? 'wg-opt wg-amber' : 'wg-opt'}
-                    style={{ border: '1px solid rgba(108,182,255,0.4)' }}
-                    data-testid={`action-${a.toLowerCase()}`}
-                    disabled={a === 'DEPLOY' && usStock <= 0}
-                    onClick={() => chooseAction(a)}
-                  >
-                    {action === a ? '> ' : '  '}
-                    {a}
-                    {a === 'DEPLOY' && usStock <= 0 ? ' (EMPTY)' : ''}
-                  </button>
-                ))}
-              </div>
-              <div className="wg-dim" style={{ marginTop: '0.3rem' }}>
-                {action === 'DEPLOY'
-                  ? 'SELECT AN ENEMY OR NEUTRAL REGION TO CONTAMINATE. THIS INVITES RETALIATION.'
-                  : action === 'DEFEND'
-                    ? 'SELECT A FRIENDLY OR NEUTRAL REGION TO DECONTAMINATE.'
-                    : 'HOLDING FORCE. THE ONLY TRULY SAFE MOVE, SOMETIMES.'}
-              </div>
-            </div>
-            <div className="wg-opts" style={{ marginTop: '0.5rem' }}>
-              <button
-                type="button"
-                className="wg-opt wg-amber"
-                style={{ border: '1px solid rgba(255,184,77,0.5)' }}
-                data-testid="execute-turn"
-                disabled={!canExecute}
-                onClick={executeTurn}
-              >
-                &gt; EXECUTE TURN
-              </button>
-            </div>
-          </>
-        )}
-
-        <div
-          className="wg-log"
-          data-testid="escalation-log"
-          style={{ marginTop: '0.8rem', height: 'clamp(5rem,20vh,10rem)' }}
-        >
-          {log.map((l, i) => (
-            <span
-              key={i}
-              className={critLog && i >= log.length - 2 ? 'crit' : undefined}
-            >
-              {l}
-            </span>
-          ))}
-        </div>
-
-        {outcome && (
-          <div style={{ marginTop: '1rem' }} data-testid="game-result">
-            <div
-              className={
-                outcome === 'win'
-                  ? 'wg-big wg-amber'
-                  : outcome === 'lose'
-                    ? 'wg-big wg-red'
-                    : 'wg-big'
-              }
-            >
-              {outcome === 'win'
-                ? 'YOU ENDURE. THE ENEMY DOES NOT.'
-                : outcome === 'lose'
-                  ? 'POPULATION COLLAPSE. A STRANGE GAME.'
-                  : 'STALEMATE. BOTH SIDES SCARRED AND STANDING.'}
-            </div>
-            <div className="wg-dim" style={{ marginTop: '0.4rem' }}>
-              {outcome === 'lose'
-                ? 'THE ONLY WINNING MOVE IS NOT TO PLAY.'
-                : `FINAL POP: FRIENDLY ${usPop} / ENEMY ${aiPop}.`}
-            </div>
-            <div className="wg-opts" style={{ marginTop: '0.6rem' }}>
-              <button
-                type="button"
-                className="wg-opt wg-amber"
-                data-testid="play-again"
-                onClick={reset}
-                autoFocus
-              >
-                &gt; PLAY AGAIN
-              </button>
-            </div>
-          </div>
-        )}
-
-        <div className="wg-opts" style={{ marginTop: '1.2rem' }}>
-          <button
-            type="button"
-            className="wg-opt"
-            data-testid="game-exit"
-            onClick={onExit}
-          >
-            &gt; EXIT TO GAMES
-          </button>
-        </div>
-      </div>
-    </div>
+    <GameShell
+      slug={SLUG}
+      title="THEATERWIDE BIOTOXIC AND CHEMICAL WARFARE"
+      objective={`SURVIVE AT ${SURVIVE_AT} OR MORE. AT CEASEFIRE (TURN ${MAX_TURNS}) A LEAD OF MORE THAN ${CEASEFIRE_MARGIN} WINS.`}
+      phase={phase}
+      phaseTone={s.result ? (s.result.outcome === 'win' ? 'amber' : s.result.outcome === 'lose' ? 'red' : 'normal') : 'amber'}
+      metrics={metrics}
+      help={help}
+      onRestart={restart}
+      inProgress={s.turn > 1 && !s.result}
+      restartLabel="NEW SIMULATION"
+      onExit={onExit}
+      layout="board"
+      announce={log.events[log.events.length - 1]?.text}
+      side={
+        <>
+          {result}
+          {actionPanel}
+          {posturePanel}
+        </>
+      }
+      report={
+        <>
+          {lastPanel}
+          <GameReport events={log.events.length ? log.events : [{ id: 0, text: `DETERRENCE WATCH ACTIVE. WOPR POSTURE ${pos.name}.` }]} />
+        </>
+      }
+    >
+      {popPanel}
+      {chain}
+      {inspector}
+    </GameShell>
   )
 }
 

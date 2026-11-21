@@ -1,0 +1,123 @@
+/* THEATERWIDE BIOTOXIC AND CHEMICAL WARFARE: linked region chain, region
+   inspector, posture meter. Shared kit: ui/gameui.css. Desktop: horizontal
+   chain with spread arrows between nodes. Phone: vertical chain, one row per
+   region, arrows between rows. */
+
+.bc-note, .bc-legend, .bc-sub { color: var(--gs-muted); text-shadow: none; font-size: 14px; margin: 4px 0 0; }
+.bc-sub { display: block; margin-bottom: 4px; letter-spacing: 0.06em; }
+.bc-pop { display: flex; flex-direction: column; gap: 6px; }
+.bc-pop .gs-bar-marker::after {
+  content: '40';
+  position: absolute;
+  top: -16px;
+  left: -6px;
+  font-size: 11px;
+  color: var(--gs-amber);
+}
+.bc-pop .gs-bar-track { height: 14px; }
+.bc-pop .gs-bar { margin-top: 10px; grid-template-columns: 9ch minmax(60px, 1fr) 7ch; }
+
+.bc-chain {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr) 40px) minmax(0, 1fr);
+  align-items: stretch;
+}
+.bc-li { display: contents; }
+.bc-node {
+  min-width: 0;
+  min-height: 128px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  padding: 8px 6px;
+  border: 1px solid var(--gs-rule-strong);
+  background: rgba(108, 182, 255, 0.06);
+  color: var(--gs-mine);
+  text-align: center;
+  cursor: pointer;
+  text-shadow: none;
+}
+.bc-node.is-ai { border-color: rgba(255, 92, 92, 0.55); background: rgba(255, 92, 92, 0.05); color: var(--gs-them); }
+.bc-node.is-n { border-style: dashed; color: #b9cde0; background: transparent; }
+.bc-node.is-eligible { box-shadow: inset 0 0 0 1px rgba(255, 184, 77, 0.45); }
+.bc-node.is-inspect { outline: 2px solid var(--gs-mine); outline-offset: 1px; }
+.bc-node.is-target { outline: 3px solid var(--gs-amber); outline-offset: 1px; background: rgba(255, 184, 77, 0.1); }
+.bc-node-name { font-size: 15px; letter-spacing: 0.04em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bc-node-side { font-size: 12px; color: var(--gs-muted); letter-spacing: 0.06em; }
+.bc-node-num { font-size: 24px; line-height: 1; font-variant-numeric: tabular-nums; }
+.bc-node-mark { font-size: 12px; color: var(--gs-amber); letter-spacing: 0.04em; min-height: 1.3em; }
+.bc-cbar { position: relative; height: 8px; border: 1px solid var(--gs-rule-strong); }
+.bc-cfill { position: absolute; inset: 0 auto 0 0; background: var(--gs-mine); opacity: 0.7; }
+.bc-cfill.is-warm { background: var(--gs-amber); }
+.bc-cfill.is-hot { background: var(--gs-them); }
+
+.bc-link {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  font-size: 14px;
+  color: var(--gs-amber);
+  position: relative;
+  font-variant-numeric: tabular-nums;
+}
+.bc-link::before {
+  content: '';
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  top: 50%;
+  border-top: 1px dashed var(--gs-rule-strong);
+  z-index: -1;
+}
+.bc-flow { background: #06101e; padding: 0 2px; }
+.bc-flow.is-off { color: var(--gs-muted); opacity: 0.5; }
+.bc-fwd::before { content: '\25B6'; margin-right: 1px; }
+.bc-back::before { content: '\25C0'; margin-right: 1px; }
+
+.bc-insp-head { display: flex; justify-content: space-between; gap: 8px; font-size: 18px; margin-bottom: 6px; }
+.bc-is-us { color: var(--gs-mine); }
+.bc-is-ai { color: var(--gs-them); }
+.bc-is-n { color: #b9cde0; }
+.bc-tag { font-size: 12px; padding: 2px 6px; border: 1px solid var(--gs-rule-strong); color: var(--gs-muted); align-self: center; text-shadow: none; }
+.bc-inspector p, .bc-posture p, .bc-last p { margin: 6px 0 0; font-size: 15px; }
+
+.bc-esc { display: flex; align-items: center; gap: 4px; }
+.bc-pip { width: 22px; height: 12px; border: 1px solid var(--gs-rule-strong); }
+.bc-pip.is-on { background: var(--gs-them); border-color: var(--gs-them); }
+.bc-pip.is-on:nth-child(-n + 2) { background: var(--gs-amber); border-color: var(--gs-amber); }
+.bc-esc-label { margin-left: 8px; font-size: 15px; color: var(--gs-amber); }
+
+.bc-action .gs-actions { margin-top: 6px; }
+.bc-targets { margin-top: 8px; }
+.bc-debrief { margin: 0; padding-left: 1.1em; font-size: 15px; }
+
+@media (max-width: 760px) {
+  .bc-chain { grid-template-columns: minmax(0, 1fr); }
+  .bc-node {
+    min-height: 44px;
+    display: grid;
+    grid-template-columns: 8.5ch 8.5ch minmax(30px, 1fr) 3ch;
+    grid-template-areas: 'name side bar num' 'mark mark mark mark';
+    align-items: center;
+    text-align: left;
+    gap: 0 8px;
+    padding: 4px 10px;
+  }
+  .bc-node-mark { line-height: 1.1; min-height: 0; }
+  .bc-node-mark:empty { display: none; }
+  .bc-node-name { grid-area: name; font-size: 15px; }
+  .bc-node-side { grid-area: side; font-size: 13px; }
+  .bc-cbar { grid-area: bar; }
+  .bc-node-num { grid-area: num; font-size: 18px; text-align: right; }
+  .bc-node-mark { grid-area: mark; text-align: right; font-size: 13px; }
+  .bc-link { flex-direction: row; gap: 18px; min-height: 22px; font-size: 13px; }
+  .bc-link::before { left: 50%; right: auto; top: 0; bottom: 0; border-top: none; border-left: 1px dashed var(--gs-rule-strong); }
+  .bc-fwd::before { content: '\25BC  '; }
+  .bc-back::before { content: '\25B2  '; }
+}

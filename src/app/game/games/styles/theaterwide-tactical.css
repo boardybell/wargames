@@ -1,0 +1,144 @@
+/* THEATERWIDE TACTICAL WARFARE: five-node front overview, selected-sector
+   inspector, battle ledger. Shared kit: ui/gameui.css. */
+
+.tt-us { color: var(--gs-mine); }
+.tt-ai { color: var(--gs-them); }
+.tt-dim { color: var(--gs-muted); text-shadow: none; }
+.tt-note { font-size: 13px; color: var(--gs-amber); text-shadow: none; }
+
+.tt-front-wrap { display: flex; flex-direction: column; gap: 6px; }
+.tt-front {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+}
+.tt-node-li { display: flex; min-width: 0; }
+.tt-node {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 118px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2px;
+  padding: 8px 4px;
+  border: 1px solid var(--gs-rule-strong);
+  background: rgba(108, 182, 255, 0.07);
+  color: var(--gs-mine);
+  cursor: pointer;
+  text-shadow: none;
+}
+.tt-node.is-ai {
+  border-color: rgba(255, 92, 92, 0.55);
+  background: rgba(255, 92, 92, 0.06);
+  color: var(--gs-them);
+}
+.tt-node:hover { background: rgba(108, 182, 255, 0.14); }
+.tt-node.is-ai:hover { background: rgba(255, 92, 92, 0.12); }
+.tt-node.is-selected {
+  outline: 2px solid var(--gs-amber);
+  outline-offset: 1px;
+}
+/* Front line: a thick amber bar on the contested sector's near side. */
+.tt-node.is-contested::before {
+  content: '';
+  position: absolute;
+  left: -5px;
+  top: -4px;
+  bottom: -4px;
+  width: 4px;
+  background: var(--gs-amber);
+}
+.tt-node.is-contested { border-style: dashed; }
+.tt-node-name { font-size: 15px; letter-spacing: 0.04em; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.tt-node-owner { font-size: 12px; color: var(--gs-muted); letter-spacing: 0.06em; }
+.tt-node-div { font-size: 28px; line-height: 1; font-variant-numeric: tabular-nums; }
+.tt-node-pend { font-size: 14px; color: var(--gs-amber); font-variant-numeric: tabular-nums; }
+.tt-node-mark { font-size: 12px; letter-spacing: 0.06em; color: var(--gs-amber); }
+.tt-node.is-edge .tt-node-mark { color: var(--gs-mine); }
+
+.tt-axis {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--gs-muted);
+  text-shadow: none;
+}
+.tt-axis span:nth-child(2) { text-align: center; }
+
+.tt-inspector .tt-insp-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 18px;
+  margin-bottom: 4px;
+}
+.tt-insp-tags { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+.tt-tag {
+  font-size: 12px;
+  padding: 2px 6px;
+  border: 1px solid var(--gs-rule-strong);
+  color: var(--gs-muted);
+  text-shadow: none;
+  align-self: center;
+}
+.tt-tag-edge { border-color: var(--gs-mine); color: var(--gs-mine); }
+.tt-tag-contest { border-color: var(--gs-amber); color: var(--gs-amber); }
+.tt-insp-line { margin: 0 0 6px; font-size: 15px; }
+.tt-stepper { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+.tt-step-label { font-size: 13px; letter-spacing: 0.1em; color: var(--gs-muted); text-shadow: none; }
+.tt-step-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.tt-step-row .gs-btn { min-width: 44px; }
+.tt-step-value {
+  min-width: 3ch;
+  text-align: center;
+  font-size: 22px;
+  color: var(--gs-amber);
+  font-variant-numeric: tabular-nums;
+}
+
+.tt-preview p, .tt-orders-sum { margin: 0 0 6px; font-size: 15px; }
+.tt-preview b { color: #d9ecff; font-weight: normal; }
+
+.tt-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  margin-bottom: 8px;
+  font-variant-numeric: tabular-nums;
+}
+.tt-table caption {
+  text-align: left;
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  color: var(--gs-amber);
+  padding-bottom: 4px;
+}
+.tt-table th, .tt-table td {
+  padding: 2px 4px;
+  border-bottom: 1px solid var(--gs-rule);
+  text-align: right;
+  font-weight: normal;
+}
+.tt-table th[scope='row'] { text-align: left; color: var(--gs-muted); text-shadow: none; }
+.tt-table thead th { color: var(--gs-muted); text-shadow: none; }
+.tt-ledger p { margin: 0; font-size: 13px; }
+
+@media (max-width: 760px) {
+  .tt-front { gap: 4px; }
+  .tt-node { min-height: 104px; padding: 6px 2px; }
+  .tt-node-name { font-size: 14px; letter-spacing: 0; }
+  .tt-node-owner, .tt-node-mark { font-size: 13px; letter-spacing: 0; }
+  .tt-node-div { font-size: 24px; }
+  .tt-axis { font-size: 12px; }
+  /* steppers stay compact: shared rule makes every action half-width */
+  .tt-step-row .gs-action { flex: 0 0 auto !important; }
+  .tt-step-row .gs-action .gs-btn { width: auto; min-width: 48px; }
+}
