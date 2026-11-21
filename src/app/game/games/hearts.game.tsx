@@ -1,496 +1,698 @@
-// HEARTS. A playable four-hand game: you plus three WOPR opponents. Pass three
-// cards left, then play thirteen tricks following suit. Hearts score one point
-// each, the queen of spades scores thirteen. Shooting the moon (all 26) sends
-// 26 to everyone else. Running totals accumulate over a short match; the game
-// ends when any player reaches the target and the LOW score wins. PLAY AGAIN,
-// EXIT. Self-contained: fresh shuffled deck per hand, simple AI play.
-import { useMemo, useState } from 'react'
-import type { GameEntry, GameProps } from './types'
+// HEARTS. You plus three WOPR opponents. STANDARD: match to 100 with the
+// left / right / across / keep pass cycle. QUICK: match to 50, always pass left.
+// Rules and opponent policy live in engines/hearts.ts (pure, tested). The
+// completed trick stays on the table, with its winner and penalty points, until
+// your next play; the LAST TRICK panel keeps it after that.
+// Design: docs/games-design-review.md §4.
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { GameEntry, GameProps } from "./types";
+import {
+  Action,
+  ActionBar,
+  GameReport,
+  GameResult,
+  GameShell,
+  Panel,
+  Segmented,
+} from "./ui/GameShell";
+import {
+  CardHand,
+  CardTile,
+  TrickTable,
+  cardName,
+  groupBySuit,
+  type Seat,
+  type TrickSeat,
+} from "./ui/cards/CardTile";
+import {
+  cue,
+  fmtWLD,
+  newSeed,
+  useEventLog,
+  useGameKeys,
+  useGameRecords,
+  useTimers,
+  type WLD,
+} from "./hooks";
+import {
+  MAX_TIEBREAK_HANDS,
+  PLAYER_NAMES,
+  aiStep,
+  cardId,
+  confirmPass,
+  legalPlays,
+  newMatch,
+  nextHand,
+  passDirection,
+  passTarget,
+  play,
+  type Card,
+  type Match,
+  type Mode,
+  type PassDir,
+  type Play,
+} from "./engines/hearts";
+import "./styles/hearts.css";
 
-const SUITS = ['♣', '♦', '♠', '♥'] as const
-const RANKS = [
-  '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A',
-] as const
-const VALUE: Record<string, number> = Object.fromEntries(
-  RANKS.map((r, i) => [r, i + 2]),
-)
+const SEAT_OF: readonly Seat[] = ["S", "W", "N", "E"];
+const SUIT_WORD: Record<string, string> = {
+  "♣": "CLUBS",
+  "♦": "DIAMONDS",
+  "♠": "SPADES",
+  "♥": "HEARTS",
+};
+const short = (c: Card): string => `${c.rank}${c.suit}`;
+const DIR_TEXT: Record<PassDir, string> = {
+  left: "LEFT",
+  right: "RIGHT",
+  across: "ACROSS",
+  keep: "KEEP",
+};
+const AI_MS = 420;
+const HOLD_MS = 1100;
 
-interface Card {
-  readonly rank: (typeof RANKS)[number]
-  readonly suit: (typeof SUITS)[number]
-}
-
-const cardId = (c: Card): string => `${c.rank}${c.suit}`
-const isHeart = (c: Card): boolean => c.suit === '♥'
-const isQueenSpades = (c: Card): boolean => c.rank === 'Q' && c.suit === '♠'
-const points = (c: Card): number => (isQueenSpades(c) ? 13 : isHeart(c) ? 1 : 0)
-
-function freshDeal(): Card[][] {
-  const deck: Card[] = []
-  for (const suit of SUITS) for (const rank of RANKS) deck.push({ rank, suit })
-  for (let i = deck.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1))
-    const tmp = deck[i]!
-    deck[i] = deck[j]!
-    deck[j] = tmp
-  }
-  const hands: Card[][] = [[], [], [], []]
-  deck.forEach((c, i) => hands[i % 4]!.push(c))
-  for (const h of hands) sortHand(h)
-  return hands
-}
-
-function sortHand(hand: Card[]): void {
-  const suitOrder: Record<string, number> = { '♣': 0, '♦': 1, '♠': 2, '♥': 3 }
-  hand.sort((a, b) => suitOrder[a.suit]! - suitOrder[b.suit]! || VALUE[a.rank]! - VALUE[b.rank]!)
-}
-
-const PLAYERS = ['YOU', 'WOPR-1', 'WOPR-2', 'WOPR-3'] as const
-const TARGET = 50
-
-interface Trick {
-  readonly leader: number
-  readonly cards: { player: number; card: Card }[]
-}
-
-type Phase = 'pass' | 'play' | 'handover' | 'matchover'
-
-interface GameState {
-  hands: Card[][]
-  totals: number[]
-  roundPoints: number[]
-  phase: Phase
-  heartsBroken: boolean
-  current: number // whose turn to play
-  trick: Trick
-  tricksPlayed: number
-  lastTrickWinner: number | null
-  message: string
-}
-
-// Legal plays for a given hand against the current trick.
-function legalPlays(
-  hand: readonly Card[],
-  trick: Trick,
-  heartsBroken: boolean,
-  tricksPlayed: number,
-): Card[] {
-  const leading = trick.cards.length === 0
-  if (leading) {
-    // First trick of the hand: must lead the two of clubs.
-    if (tricksPlayed === 0) {
-      const twoC = hand.find((c) => c.rank === '2' && c.suit === '♣')
-      if (twoC) return [twoC]
-    }
-    if (!heartsBroken) {
-      const nonHearts = hand.filter((c) => !isHeart(c))
-      // Can only lead a heart if that is all you hold.
-      if (nonHearts.length > 0) return nonHearts
-    }
-    return hand.slice()
-  }
-  const ledSuit = trick.cards[0]!.card.suit
-  const following = hand.filter((c) => c.suit === ledSuit)
-  if (following.length > 0) return following
-  // Void in the led suit: on the first trick you may not dump points.
-  if (tricksPlayed === 0) {
-    const safe = hand.filter((c) => points(c) === 0)
-    if (safe.length > 0) return safe
-  }
-  return hand.slice()
-}
-
-// AI play: follow suit low when possible, duck the queen, avoid taking points.
-function aiChoose(
-  hand: readonly Card[],
-  trick: Trick,
-  heartsBroken: boolean,
-  tricksPlayed: number,
-): Card {
-  const legal = legalPlays(hand, trick, heartsBroken, tricksPlayed)
-  if (legal.length === 1) return legal[0]!
-  if (trick.cards.length === 0) {
-    // Leading: play a low non-point card.
-    const sorted = [...legal].sort((a, b) => VALUE[a.rank]! - VALUE[b.rank]!)
-    return sorted[0]!
-  }
-  const ledSuit = trick.cards[0]!.card.suit
-  const highestInTrick = Math.max(
-    ...trick.cards.filter((p) => p.card.suit === ledSuit).map((p) => VALUE[p.card.rank]!),
-  )
-  const following = legal.filter((c) => c.suit === ledSuit)
-  if (following.length > 0) {
-    // Try to stay under the current high card; else play lowest.
-    const under = following
-      .filter((c) => VALUE[c.rank]! < highestInTrick)
-      .sort((a, b) => VALUE[b.rank]! - VALUE[a.rank]!)
-    if (under.length > 0) return under[0]!
-    return [...following].sort((a, b) => VALUE[a.rank]! - VALUE[b.rank]!)[0]!
-  }
-  // Void: dump the queen of spades, then high hearts, then high cards.
-  const queen = legal.find(isQueenSpades)
-  if (queen) return queen
-  const byDanger = [...legal].sort(
-    (a, b) => points(b) - points(a) || VALUE[b.rank]! - VALUE[a.rank]!,
-  )
-  return byDanger[0]!
-}
-
-function trickWinner(trick: Trick): number {
-  const ledSuit = trick.cards[0]!.card.suit
-  let best = trick.cards[0]!
-  for (const p of trick.cards) {
-    if (p.card.suit === ledSuit && VALUE[p.card.rank]! > VALUE[best.card.rank]!) best = p
-  }
-  return best.player
-}
-
-function startHand(totals: number[]): GameState {
-  const hands = freshDeal()
-  // Each player passes three cards to the left. Human passes interactively; the
-  // AI passes are computed when the human confirms. Find who holds 2 of clubs
-  // after passing to set the leader, done later.
-  return {
-    hands,
-    totals,
-    roundPoints: [0, 0, 0, 0],
-    phase: 'pass',
-    heartsBroken: false,
-    current: 0,
-    trick: { leader: 0, cards: [] },
-    tricksPlayed: 0,
-    lastTrickWinner: null,
-    message: 'PASS THREE CARDS LEFT.',
-  }
-}
-
-// AI chooses three cards to pass: its three highest cards, queen of spades first.
-function aiPassChoice(hand: readonly Card[]): Card[] {
-  const ranked = [...hand].sort(
-    (a, b) =>
-      (isQueenSpades(b) ? 100 : points(b) * 10 + VALUE[b.rank]!) -
-      (isQueenSpades(a) ? 100 : points(a) * 10 + VALUE[a.rank]!),
-  )
-  return ranked.slice(0, 3)
+function describeTrick(
+  no: number,
+  plays: readonly Play[],
+  winner: number,
+  pts: number,
+): string {
+  const win = plays.find((p) => p.player === winner)!;
+  const hearts = plays.filter((p) => p.card.suit === "♥").length;
+  const q = plays.some((p) => p.card.rank === "Q" && p.card.suit === "♠");
+  const parts = [
+    q ? "Q♠ 13" : "",
+    hearts ? `${hearts} HEART${hearts > 1 ? "S" : ""}` : "",
+  ]
+    .filter(Boolean)
+    .join(" + ");
+  return `TRICK ${no}: ${PLAYER_NAMES[winner]} ${winner === 0 ? "WIN" : "WINS"} WITH ${short(win.card)} · ${pts} PT${pts === 1 ? "" : "S"}${parts ? ` (${parts})` : ""}`;
 }
 
 function Hearts({ onExit }: GameProps) {
-  const [state, setState] = useState<GameState>(() => startHand([0, 0, 0, 0]))
-  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const rec = useGameRecords("hearts");
+  const timers = useTimers();
+  const log = useEventLog();
+  const [mode, setMode] = useState<Mode>("standard");
+  const [m, setM] = useState<Match>(() => newMatch("standard", newSeed()));
+  const [selected, setSelected] = useState<string[]>([]);
+  const [hint, setHint] = useState("");
+  const mRef = useRef(m);
+  mRef.current = m;
 
-  const myHand = state.hands[0]!
+  const hand = m.hand;
+  const myCards: Card[] =
+    m.phase === "pass" ? m.dealt[0]! : (hand?.hands[0] ?? []);
+  const myTurn = m.phase === "play" && hand?.current === 0;
+  const legal = useMemo(
+    () =>
+      myTurn && hand
+        ? new Set(
+            legalPlays(
+              hand.hands[0]!,
+              hand.trick,
+              hand.heartsBroken,
+              hand.tricksPlayed === 0,
+            ).map(cardId),
+          )
+        : new Set<string>(),
+    [myTurn, hand],
+  );
 
-  const toggleSelect = (c: Card): void => {
-    if (state.phase !== 'pass') return
-    const id = cardId(c)
-    setSelected((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else if (next.size < 3) next.add(id)
-      return next
-    })
-  }
-
-  const confirmPass = (): void => {
-    if (state.phase !== 'pass' || selected.size !== 3) return
-    const hands = state.hands.map((h) => h.slice())
-    // Each player passes to the player on their left (i -> i+1).
-    const outgoing: Card[][] = [[], [], [], []]
-    outgoing[0] = myHand.filter((c) => selected.has(cardId(c)))
-    for (let p = 1; p < 4; p++) outgoing[p] = aiPassChoice(hands[p]!)
-    for (let p = 0; p < 4; p++) {
-      const pass = outgoing[p]!
-      const ids = new Set(pass.map(cardId))
-      hands[p] = hands[p]!.filter((c) => !ids.has(cardId(c)))
+  /** Commit a new match state from a handler: report, sound, records. */
+  const commit = (prev: Match, next: Match): void => {
+    setM(next);
+    const lt = next.hand?.lastTrick;
+    if (lt && lt !== prev.hand?.lastTrick) {
+      log.push({
+        text: describeTrick(lt.no, lt.plays, lt.winner, lt.points),
+        kind:
+          lt.winner === 0 && lt.points > 0
+            ? "bad"
+            : lt.winner === 0
+              ? "info"
+              : "good",
+      });
+      for (const n of next.lastNotes) log.push({ text: n, kind: "warn" });
+      if (lt.winner === 0 && lt.points > 0) cue.hit();
     }
-    for (let p = 0; p < 4; p++) {
-      const to = (p + 1) % 4
-      hands[to] = hands[to]!.concat(outgoing[p]!)
+    if (
+      next.phase !== prev.phase &&
+      (next.phase === "handover" || next.phase === "matchover") &&
+      next.handScore
+    ) {
+      const sc = next.handScore;
+      log.push({
+        text:
+          sc.shooter !== null
+            ? `HAND ${next.handNo}: ${PLAYER_NAMES[sc.shooter]} SHOT THE MOON. 26 TO EVERYONE ELSE.`
+            : `HAND ${next.handNo}: ${sc.points.map((p, i) => `${PLAYER_NAMES[i]} +${p}`).join(" · ")}`,
+        kind: sc.shooter === 0 ? "good" : sc.shooter !== null ? "bad" : "info",
+      });
+      if (next.status.kind === "over") {
+        const o = !next.status.winners.includes(0)
+          ? "lose"
+          : next.status.shared
+            ? "draw"
+            : "win";
+        rec.recordOnce(`${next.seed}-${next.handNo}`, () =>
+          rec.tally(next.mode, o),
+        );
+        if (o === "win") cue.win();
+        else if (o === "lose") cue.lose();
+        else cue.draw();
+      } else cue.draw();
     }
-    for (const h of hands) sortHand(h)
+  };
 
-    // The holder of the two of clubs leads the first trick.
-    let leader = 0
-    for (let p = 0; p < 4; p++) {
-      if (hands[p]!.some((c) => c.rank === '2' && c.suit === '♣')) {
-        leader = p
-        break
-      }
-    }
-    const next: GameState = {
-      ...state,
-      hands,
-      phase: 'play',
-      current: leader,
-      trick: { leader, cards: [] },
-      message: 'TWO OF CLUBS LEADS.',
-    }
-    setSelected(new Set())
-    // If AI leads, advance.
-    if (leader !== 0) setState(advanceAI(next))
-    else setState(next)
-  }
+  // Opponents play on a short timer; a completed trick holds on the table first.
+  useEffect(() => {
+    if (m.phase !== "play" || !m.hand || m.hand.current === 0) return;
+    const justClosed = m.hand.trick.length === 0 && m.hand.lastTrick !== null;
+    timers.later(
+      () => {
+        const prev = mRef.current;
+        const step = aiStep(prev);
+        if (!step) return;
+        cue.card();
+        commit(prev, step.match);
+      },
+      justClosed ? HOLD_MS : AI_MS,
+    );
+    return timers.clear;
+  }, [m]);
 
-  // Resolve a completed trick: award points, set the next leader, detect hand end.
-  const resolveTrick = (s: GameState): GameState => {
-    const winner = trickWinner(s.trick)
-    const pts = s.trick.cards.reduce((n, p) => n + points(p.card), 0)
-    const roundPoints = s.roundPoints.slice()
-    roundPoints[winner] = roundPoints[winner]! + pts
-    const tricksPlayed = s.tricksPlayed + 1
-    const broke = s.heartsBroken || s.trick.cards.some((p) => isHeart(p.card))
+  const restart = (nextMode: Mode = mode): void => {
+    timers.clear();
+    log.reset();
+    setSelected([]);
+    setHint("");
+    setM(newMatch(nextMode, newSeed()));
+  };
 
-    if (tricksPlayed === 13) {
-      // Apply scoring with shoot-the-moon.
-      const shooter = roundPoints.findIndex((p) => p === 26)
-      const finalRound = roundPoints.slice()
-      if (shooter >= 0) {
-        for (let p = 0; p < 4; p++) finalRound[p] = p === shooter ? 0 : 26
-      }
-      const totals = s.totals.map((t, p) => t + finalRound[p]!)
-      const over = totals.some((t) => t >= TARGET)
-      return {
-        ...s,
-        roundPoints: finalRound,
-        totals,
-        tricksPlayed,
-        heartsBroken: broke,
-        phase: over ? 'matchover' : 'handover',
-        trick: { leader: winner, cards: [] },
-        lastTrickWinner: winner,
-        message:
-          shooter >= 0
-            ? `${PLAYERS[shooter]} SHOT THE MOON.`
-            : 'HAND COMPLETE.',
-      }
-    }
-    return {
-      ...s,
-      roundPoints,
-      tricksPlayed,
-      heartsBroken: broke,
-      current: winner,
-      trick: { leader: winner, cards: [] },
-      lastTrickWinner: winner,
-      message: `${PLAYERS[winner]} TAKES THE TRICK (${pts} PT).`,
-    }
-  }
-
-  // Have AI players act until it is the human's turn or the trick resolves.
-  const advanceAI = (start: GameState): GameState => {
-    let s = start
-    // Loop guard: at most 4 plays per trick cycle.
-    for (let guard = 0; guard < 8; guard++) {
-      if (s.phase !== 'play') return s
-      if (s.current === 0 && s.trick.cards.length < 4) return s // human to act
-      if (s.trick.cards.length === 4) {
-        s = resolveTrick(s)
-        continue
-      }
-      // AI play.
-      const hand = s.hands[s.current]!
-      const card = aiChoose(hand, s.trick, s.heartsBroken, s.tricksPlayed)
-      s = playCardInto(s, s.current, card)
-      if (s.trick.cards.length === 4) {
-        s = resolveTrick(s)
-      } else {
-        s = { ...s, current: (s.current + 1) % 4 }
-      }
-    }
-    return s
-  }
-
-  const playCardInto = (s: GameState, player: number, card: Card): GameState => {
-    const hands = s.hands.map((h, i) =>
-      i === player ? h.filter((c) => cardId(c) !== cardId(card)) : h,
-    )
-    const broke = s.heartsBroken || isHeart(card)
-    return {
-      ...s,
-      hands,
-      heartsBroken: broke,
-      trick: { ...s.trick, cards: [...s.trick.cards, { player, card }] },
-    }
-  }
-
-  const playMyCard = (card: Card): void => {
-    if (state.phase !== 'play' || state.current !== 0) return
-    const legal = legalPlays(myHand, state.trick, state.heartsBroken, state.tricksPlayed)
-    if (!legal.some((c) => cardId(c) === cardId(card))) return
-    let s = playCardInto(state, 0, card)
-    if (s.trick.cards.length === 4) {
-      s = resolveTrick(s)
-      if (s.phase === 'play' && s.current !== 0) s = advanceAI(s)
+  const toggle = (c: Card): void => {
+    if (m.phase !== "pass") return;
+    const id = cardId(c);
+    if (selected.includes(id)) {
+      setSelected(selected.filter((x) => x !== id));
+      setHint("");
+      cue.select();
+    } else if (selected.length < 3) {
+      setSelected([...selected, id]);
+      setHint("");
+      cue.select();
     } else {
-      s = { ...s, current: 1 }
-      s = advanceAI(s)
+      setHint("THREE CARDS CHOSEN. TAP ONE TO RETURN IT FIRST.");
+      cue.deny();
     }
-    setState(s)
+  };
+
+  const doPass = (): void => {
+    if (m.phase !== "pass" || selected.length !== 3) return;
+    const mine = m.dealt[0]!.filter((c) => selected.includes(cardId(c)));
+    const next = confirmPass(m, mine);
+    setSelected([]);
+    cue.card();
+    const from = next.receivedFrom;
+    log.push({
+      text: `HAND ${m.handNo}: YOU PASSED ${mine.map(short).join(" ")} ${DIR_TEXT[m.dir]} TO ${PLAYER_NAMES[passTarget(0, m.dir)]}. RECEIVED ${next.received.join(" ")}${from !== null ? ` FROM ${PLAYER_NAMES[from]}` : ""}.`,
+    });
+    commit(m, next);
+  };
+
+  const playMine = (c: Card): void => {
+    if (!myTurn || !legal.has(cardId(c))) {
+      cue.deny();
+      return;
+    }
+    cue.card();
+    commit(m, play(m, c));
+  };
+
+  const goNext = (): void => {
+    if (m.phase === "handover") {
+      timers.clear();
+      setSelected([]);
+      const next = nextHand(m, newSeed());
+      setM(next);
+      cue.card();
+      if (next.dir === "keep")
+        log.push({ text: `HAND ${next.handNo}: KEEP HAND. NO PASS.` });
+    } else if (m.phase === "matchover") restart();
+  };
+
+  useGameKeys((k) => {
+    const key = k.toLowerCase();
+    if (key === "p" && m.phase === "pass" && selected.length === 3) {
+      doPass();
+      return true;
+    }
+    if (key === "n" && (m.phase === "handover" || m.phase === "matchover")) {
+      goNext();
+      return true;
+    }
+    return false;
+  });
+
+  const changeMode = (v: Mode): void => {
+    setMode(v);
+    const fresh = m.handNo === 1 && m.phase === "pass" && selected.length === 0;
+    if (fresh) restart(v);
+  };
+
+  // ---------------------------------------------------------------- view
+  const trickNo = hand ? Math.min(13, hand.tricksPlayed + 1) : 0;
+  const tiebreakHand = m.status.kind === "tiebreak";
+  const led = hand?.trick[0]?.card.suit;
+
+  let phase: string;
+  if (m.phase === "pass")
+    phase = `SELECT THREE CARDS TO PASS ${DIR_TEXT[m.dir]} (${selected.length}/3)`;
+  else if (m.phase === "play" && hand) {
+    if (hand.current === 0) {
+      if (hand.trick.length === 0)
+        phase =
+          hand.tricksPlayed === 0 ? "YOUR LEAD: TWO OF CLUBS" : "YOUR LEAD";
+      else
+        phase =
+          legal.size && [...legal].every((id) => id.endsWith(led!))
+            ? `YOUR PLAY: FOLLOW ${SUIT_WORD[led!]}`
+            : `YOUR PLAY: VOID IN ${SUIT_WORD[led!]}, DISCARD`;
+    } else phase = `${PLAYER_NAMES[hand.current]} TO PLAY`;
+  } else if (m.phase === "handover")
+    phase =
+      m.status.kind === "tiebreak"
+        ? "LOW SCORE TIED: TIE-BREAK HAND NEXT"
+        : "HAND COMPLETE";
+  else phase = "MATCH OVER";
+
+  // Table: the trick in progress, or the completed trick until your next play.
+  const showing: { plays: readonly Play[]; done: boolean } =
+    hand && hand.trick.length > 0
+      ? { plays: hand.trick, done: false }
+      : { plays: hand?.lastTrick?.plays ?? [], done: !!hand?.lastTrick };
+  const lt = hand?.lastTrick ?? null;
+  const seats = {} as Record<Seat, TrickSeat>;
+  for (let p = 0; p < 4; p++) {
+    const pl = showing.plays.find((x) => x.player === p);
+    const voids = hand?.voids[p] ?? [];
+    seats[SEAT_OF[p]!] = {
+      name: PLAYER_NAMES[p]!,
+      card: pl?.card,
+      winner: showing.done && lt?.winner === p,
+      active: m.phase === "play" && hand?.current === p,
+      lead: showing.plays[0]?.player === p,
+      note: `${hand?.taken[p] ?? 0} PT${(hand?.taken[p] ?? 0) === 1 ? "" : "S"}${voids.length ? ` · VOID ${voids.join("")}` : ""}`,
+    };
+  }
+  const center = (
+    <div className="ht-center" data-testid="hearts-trick-center">
+      {showing.done && lt ? (
+        <>
+          <strong>
+            TRICK {lt.no} TO {PLAYER_NAMES[lt.winner]}
+          </strong>
+          <span>
+            {lt.points} PENALTY PT{lt.points === 1 ? "" : "S"}
+          </span>
+        </>
+      ) : m.phase === "pass" ? (
+        <span>PASS {DIR_TEXT[m.dir]}</span>
+      ) : hand && hand.trick.length > 0 ? (
+        <span>
+          TRICK {trickNo}/13 · {SUIT_WORD[led!]} LED
+        </span>
+      ) : (
+        <span>2♣ LEADS</span>
+      )}
+    </div>
+  );
+
+  const received = new Set(m.received);
+  const groups = groupBySuit(myCards, ["♣", "♦", "♠", "♥"]);
+  const handLabel =
+    m.phase === "pass"
+      ? "YOUR HAND · TAP THREE TO PASS"
+      : myTurn
+        ? "YOUR HAND · TAP A LEGAL CARD"
+        : "YOUR HAND";
+  const inactive =
+    m.phase === "play" && !myTurn
+      ? `WAITING FOR ${hand ? PLAYER_NAMES[hand.current] : ""}.`
+      : undefined;
+
+  const scoreboard = (
+    <Panel title={`SCORES · TARGET ${m.target} · LOW WINS`}>
+      <table className="ht-score" data-testid="hearts-scores">
+        <thead>
+          <tr>
+            <th scope="col">PLAYER</th>
+            <th scope="col">MATCH</th>
+            <th scope="col">THIS HAND</th>
+          </tr>
+        </thead>
+        <tbody>
+          {PLAYER_NAMES.map((n, i) => {
+            const lowNow = m.totals[i] === Math.min(...m.totals);
+            const handPts =
+              m.handScore && m.phase !== "play" && m.phase !== "pass"
+                ? m.handScore.points[i]!
+                : (hand?.taken[i] ?? 0);
+            return (
+              <tr
+                key={n}
+                className={`${i === 0 ? "is-you" : ""}${lowNow ? " is-low" : ""}${handPts >= 13 ? " is-hot" : ""}`}
+              >
+                <th scope="row">{n}</th>
+                <td className="ht-total">{m.totals[i]}</td>
+                <td className="ht-handpts">
+                  {m.phase === "pass" ? "—" : `+${handPts}`}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </Panel>
+  );
+
+  const passPanel = m.phase === "pass" && (
+    <Panel
+      title={`PASS ${DIR_TEXT[m.dir]} TO ${PLAYER_NAMES[passTarget(0, m.dir)]}`}
+    >
+      <div className="ht-slots" data-testid="hearts-pass-slots">
+        {[0, 1, 2].map((i) => {
+          const id = selected[i];
+          const c = id ? myCards.find((x) => cardId(x) === id) : undefined;
+          return c ? (
+            <CardTile
+              key={i}
+              card={c}
+              size="sm"
+              badge={`${i + 1}/3`}
+              onClick={() => toggle(c)}
+              label={`Pass slot ${i + 1}: ${cardName(c)}. Tap to return it.`}
+            />
+          ) : (
+            <span
+              key={i}
+              className="gs-card gs-card-sm gs-card-empty"
+              role="img"
+              aria-label={`Pass slot ${i + 1} empty`}
+            >
+              {i + 1}
+            </span>
+          );
+        })}
+      </div>
+      <ActionBar>
+        <Action
+          variant="primary"
+          onClick={doPass}
+          disabled={selected.length !== 3}
+          reason={`CHOOSE ${3 - selected.length} MORE`}
+          testId="hearts-pass"
+          shortcut="P"
+        >
+          PASS {selected.length}/3 {DIR_TEXT[m.dir]}
+        </Action>
+      </ActionBar>
+      {hint && <p className="gs-tone-amber">{hint}</p>}
+    </Panel>
+  );
+
+  const lastPanel = lt && (
+    <Panel title={`LAST TRICK · ${lt.no}/13`}>
+      <div className="ht-last" data-testid="hearts-last-trick">
+        {lt.plays.map((p) => (
+          <span key={p.player} className="ht-last-play">
+            <CardTile
+              card={p.card}
+              size="sm"
+              mark={p.player === lt.winner ? "win" : "none"}
+              badge={p.player === lt.winner ? "WINS" : undefined}
+            />
+            {PLAYER_NAMES[p.player]}
+          </span>
+        ))}
+      </div>
+      <p>
+        {PLAYER_NAMES[lt.winner]} {lt.winner === 0 ? "TAKE" : "TAKES"}{" "}
+        {lt.points} PT{lt.points === 1 ? "" : "S"}.
+      </p>
+      {m.lastNotes.length > 0 && (
+        <ul className="ht-notes">
+          {m.lastNotes.map((n) => (
+            <li key={n}>{n}</li>
+          ))}
+        </ul>
+      )}
+    </Panel>
+  );
+
+  const nextDir = passDirection(m.handNo + 1, m.mode);
+  const handPanel = m.phase === "handover" && m.handScore && (
+    <Panel title={`HAND ${m.handNo} COMPLETE`}>
+      <p data-testid="hearts-hand-result">
+        {m.handScore.shooter !== null
+          ? m.handScore.shooter === 0
+            ? "YOU SHOT THE MOON. 26 TO EACH OPPONENT."
+            : `${PLAYER_NAMES[m.handScore.shooter]} SHOT THE MOON. 26 TO EVERYONE ELSE.`
+          : `YOU TOOK ${m.handScore.points[0]} PT${m.handScore.points[0] === 1 ? "" : "S"} THIS HAND.`}
+      </p>
+      {m.status.kind === "tiebreak" && (
+        <p className="gs-tone-amber">
+          {m.status.tied.map((i) => PLAYER_NAMES[i]).join(" AND ")} TIED LOW AT{" "}
+          {m.status.low}. TIE-BREAK HAND {m.tiebreaks + 1} OF{" "}
+          {MAX_TIEBREAK_HANDS}.
+        </p>
+      )}
+      <ActionBar>
+        <Action
+          variant="primary"
+          onClick={goNext}
+          testId="hearts-next"
+          shortcut="N"
+          autoFocus
+        >
+          NEXT HAND ·{" "}
+          {nextDir === "keep" ? "KEEP" : `PASS ${DIR_TEXT[nextDir]}`}
+        </Action>
+      </ActionBar>
+    </Panel>
+  );
+
+  let resultPanel = null;
+  if (m.phase === "matchover" && m.status.kind === "over") {
+    const s = m.status;
+    const o = !s.winners.includes(0) ? "lose" : s.shared ? "draw" : "win";
+    const names = s.winners.map((i) => PLAYER_NAMES[i]).join(" AND ");
+    const reached = m.totals
+      .flatMap((t, i) => (t >= m.target ? [PLAYER_NAMES[i]] : []))
+      .join(", ");
+    resultPanel = (
+      <GameResult
+        outcome={o}
+        headline={
+          o === "win"
+            ? "YOU WIN THE MATCH"
+            : o === "draw"
+              ? "SHARED WIN"
+              : `${names} WIN${s.winners.length > 1 ? "" : "S"}`
+        }
+        reason={
+          s.shared
+            ? `${names} STILL TIED LOW AT ${s.low} AFTER ${m.tiebreaks} TIE-BREAK HANDS. THE WIN IS SHARED.`
+            : `${reached} REACHED ${m.target}. ${names} HOLDS THE LOW SCORE ALONE AT ${s.low}${m.tiebreaks ? ` AFTER ${m.tiebreaks} TIE-BREAK HAND${m.tiebreaks > 1 ? "S" : ""}` : ""}.`
+        }
+        metrics={[
+          { label: "HANDS", value: m.handNo },
+          { label: "YOUR TOTAL", value: m.totals[0]! },
+        ]}
+        testId="hearts-outcome"
+      >
+        <Action
+          variant="primary"
+          onClick={() => restart()}
+          testId="hearts-again"
+          shortcut="N"
+        >
+          NEW MATCH
+        </Action>
+      </GameResult>
+    );
   }
 
-  const nextHand = (): void => {
-    setState(startHand(state.totals))
-    setSelected(new Set())
-  }
-
-  const newMatch = (): void => {
-    setState(startHand([0, 0, 0, 0]))
-    setSelected(new Set())
-  }
-
-  const legalNow = useMemo(() => {
-    if (state.phase !== 'play' || state.current !== 0) return new Set<string>()
-    return new Set(
-      legalPlays(myHand, state.trick, state.heartsBroken, state.tricksPlayed).map(cardId),
-    )
-  }, [state, myHand])
-
-  const winnerIdx =
-    state.phase === 'matchover'
-      ? state.totals.indexOf(Math.min(...state.totals))
-      : -1
-
-  const red = (c: Card): boolean => c.suit === '♥' || c.suit === '♦'
+  const record = rec.get<WLD | undefined>(m.mode, undefined);
 
   return (
-    <div className="wg-screen" data-testid="game-hearts">
-      <div className="wg-out">
-        <div className="wg-dim">WOPR HEARTS   TARGET {TARGET}, LOW SCORE WINS</div>
-        <div style={{ marginBottom: '0.4rem' }}>
-          {PLAYERS.map((p, i) => (
-            <span key={p} className={i === 0 ? 'wg-amber' : 'wg-dim'}>
-              {p} {state.totals[i]}
-              {i < 3 ? '   ' : ''}
-            </span>
-          ))}
+    <GameShell
+      slug="hearts"
+      title="HEARTS"
+      layout="table"
+      objective={`AVOID HEARTS AND THE QUEEN OF SPADES. FIRST TO ${m.target} ENDS THE MATCH; LOW SCORE WINS.`}
+      phase={phase}
+      phaseTone={myTurn || m.phase === "pass" ? "amber" : "dim"}
+      metrics={[
+        {
+          label: "HAND",
+          value: tiebreakHand ? `${m.handNo} TIE-BREAK` : m.handNo,
+          tone: tiebreakHand ? "amber" : "normal",
+        },
+        { label: "PASS", value: DIR_TEXT[m.dir] },
+        { label: "TRICK", value: hand ? `${trickNo}/13` : "—" },
+        {
+          label: "HEARTS",
+          value: hand?.heartsBroken ? "OPEN" : "CLOSED",
+          tone: hand?.heartsBroken ? "red" : "dim",
+        },
+        { label: "YOU", value: `${m.totals[0]}/${m.target}` },
+        {
+          label: `RECORD ${m.mode === "quick" ? "QUICK" : "STD"}`,
+          value: fmtWLD(record),
+          tone: "dim",
+          title: "Matches won-lost-shared in this mode",
+        },
+      ]}
+      toolbar={
+        <Segmented<Mode>
+          label="MODE"
+          value={mode}
+          onChange={changeMode}
+          options={[
+            { value: "standard", label: "STANDARD" },
+            { value: "quick", label: "QUICK · ALWAYS LEFT" },
+          ]}
+          testId="hearts-mode"
+        />
+      }
+      help={
+        <>
+          <p>
+            TAKE AS FEW PENALTY POINTS AS POSSIBLE. EACH HEART IS 1 POINT, THE
+            QUEEN OF SPADES 13.
+          </p>
+          <ul>
+            <li>
+              STANDARD: MATCH TO 100. PASS THREE CARDS LEFT, RIGHT, ACROSS, THEN
+              KEEP (NO PASS), REPEATING.
+            </li>
+            <li>
+              QUICK: MATCH TO 50. ALWAYS PASS LEFT. A MODE CHANGE MID-MATCH
+              APPLIES TO THE NEXT MATCH.
+            </li>
+            <li>
+              THE TWO OF CLUBS LEADS THE FIRST TRICK. FOLLOW SUIT IF YOU CAN;
+              HIGHEST CARD OF THE LED SUIT WINS.
+            </li>
+            <li>
+              NO HEARTS OR QUEEN OF SPADES ON THE FIRST TRICK UNLESS YOU HOLD
+              NOTHING ELSE.
+            </li>
+            <li>
+              HEARTS CANNOT BE LED UNTIL ONE HAS BEEN PLAYED (HEARTS OPEN),
+              UNLESS YOU HOLD ONLY HEARTS.
+            </li>
+            <li>
+              SHOOT THE MOON: TAKE ALL 26 POINTS AND EVERY OPPONENT SCORES 26
+              INSTEAD.
+            </li>
+            <li>
+              WHEN SOMEONE REACHES THE TARGET, THE LOWEST TOTAL WINS. IF THE LOW
+              SCORE IS TIED, UP TO {MAX_TIEBREAK_HANDS} TIE-BREAK HANDS ARE
+              PLAYED; A TIE THAT SURVIVES THEM IS A SHARED WIN.
+            </li>
+            <li>
+              THE COMPLETED TRICK STAYS ON THE TABLE UNTIL YOUR NEXT PLAY. LAST
+              TRICK KEEPS IT AFTER THAT.
+            </li>
+            <li>
+              OPPONENTS SEE ONLY THEIR OWN CARDS AND WHAT HAS BEEN PLAYED. THEY
+              TRACK SHOWN VOIDS AND DEFEND AGAINST THE MOON.
+            </li>
+            <li>
+              KEYS: P PASS · N NEXT HAND / NEW MATCH. TAB TO A CARD, ENTER TO
+              PLAY IT.
+            </li>
+          </ul>
+        </>
+      }
+      onRestart={() => restart()}
+      inProgress={
+        m.phase !== "matchover" && (m.handNo > 1 || m.phase !== "pass")
+      }
+      restartLabel="NEW MATCH"
+      onExit={() => {
+        timers.clear();
+        onExit();
+      }}
+      side={
+        <div className="ht-side">
+          {resultPanel}
+          {passPanel}
+          {handPanel}
+          {lastPanel}
+          {scoreboard}
+          {mode !== m.mode && (
+            <p className="gs-tone-amber">
+              {mode === "quick" ? "QUICK" : "STANDARD"} MODE STARTS WITH THE
+              NEXT MATCH.
+            </p>
+          )}
         </div>
-        <div className="wg-dim" style={{ marginBottom: '0.5rem' }}>
-          HAND POINTS: {state.roundPoints.map((p, i) => `${PLAYERS[i]} ${p}`).join('  ')}
-        </div>
-
-        {/* The current trick on the table. */}
-        {state.phase === 'play' && (
-          <div style={{ marginBottom: '0.5rem' }}>
-            <span className="wg-amber">TRICK: </span>
-            {state.trick.cards.length === 0 ? (
-              <span className="wg-dim">(EMPTY)</span>
-            ) : (
-              state.trick.cards.map((p, i) => (
-                <span key={i}>
-                  {' '}
-                  <span className="wg-dim">{PLAYERS[p.player]}:</span>
-                  <span className={red(p.card) ? 'wg-red' : undefined}>
-                    [{p.card.rank}
-                    {p.card.suit}]
-                  </span>
-                </span>
-              ))
-            )}
-          </div>
-        )}
-
-        <div className={state.message.includes('SHOT') ? 'wg-amber' : 'wg-dim'} style={{ marginBottom: '0.5rem' }}>
-          {state.message}
-          {state.phase === 'play' && state.current === 0 && state.trick.cards.length < 4
-            ? ' YOUR PLAY.'
-            : ''}
-        </div>
-
-        {state.phase === 'matchover' && (
-          <div
-            className={winnerIdx === 0 ? 'wg-big wg-amber' : 'wg-big wg-red'}
-            style={{ marginBottom: '0.4rem' }}
-            data-testid="hearts-outcome"
+      }
+      report={<GameReport events={log.events} />}
+      announce={log.events[log.events.length - 1]?.text}
+    >
+      <div className={`ht-table${m.phase === "pass" ? " is-pass" : ""}`}>
+        <TrickTable seats={seats} center={center} testId="hearts-table" />
+        {(m.phase === "pass" || m.phase === "play") && (
+          <CardHand
+            label={handLabel}
+            testId="hearts-hand"
+            inactiveReason={inactive}
           >
-            {winnerIdx === 0 ? 'YOU WIN THE MATCH.' : `${PLAYERS[winnerIdx]} WINS THE MATCH.`}
-          </div>
-        )}
-
-        {/* Your hand. In pass phase, click to select 3. In play, click a legal card. */}
-        {(state.phase === 'pass' || state.phase === 'play') && (
-          <div style={{ marginBottom: '0.4rem' }}>
-            <div className="wg-amber">YOUR HAND</div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.1rem' }}>
-              {myHand.map((c) => {
-                const id = cardId(c)
-                const isSel = selected.has(id)
-                const playable =
-                  state.phase === 'pass' ? true : legalNow.has(id)
-                return (
-                  <button
-                    key={id}
-                    type="button"
-                    className="wg-opt"
-                    onClick={() =>
-                      state.phase === 'pass' ? toggleSelect(c) : playMyCard(c)
-                    }
-                    disabled={state.phase === 'play' && !playable}
-                    data-testid={`hearts-card-${id}`}
-                    style={{ opacity: state.phase === 'play' && !playable ? 0.4 : 1 }}
-                  >
-                    <span className={isSel ? 'wg-amber' : red(c) ? 'wg-red' : undefined}>
-                      [{c.rank}
-                      {c.suit}]
-                      {isSel ? '*' : ''}
-                    </span>
-                  </button>
-                )
-              })}
+            <div className="ht-hand-groups" style={{ display: "contents" }}>
+              {groups.map((g) => (
+                <div
+                  key={g.suit}
+                  className="gs-suitgroup"
+                  role="group"
+                  aria-label={SUIT_WORD[g.suit]}
+                >
+                  {g.items.map(({ card: c }) => {
+                    const id = cardId(c);
+                    const isSel = selected.includes(id);
+                    const playable = m.phase === "pass" || legal.has(id);
+                    return (
+                      <CardTile
+                        key={id}
+                        card={c}
+                        selected={isSel}
+                        eligible={myTurn && playable}
+                        badge={
+                          isSel ? "PASS" : received.has(id) ? "NEW" : undefined
+                        }
+                        disabled={
+                          m.phase === "play"
+                            ? !myTurn || !playable
+                            : m.phase !== "pass"
+                        }
+                        onClick={() =>
+                          m.phase === "pass" ? toggle(c) : playMine(c)
+                        }
+                        testId={`hearts-card-${id}`}
+                      />
+                    );
+                  })}
+                </div>
+              ))}
             </div>
-          </div>
+          </CardHand>
         )}
-
-        <div className="wg-opts">
-          {state.phase === 'pass' && (
-            <button
-              type="button"
-              className="wg-opt"
-              onClick={confirmPass}
-              disabled={selected.size !== 3}
-              data-testid="hearts-pass"
-              autoFocus
-            >
-              &gt; PASS {selected.size}/3 CARDS LEFT
-            </button>
-          )}
-          {state.phase === 'handover' && (
-            <button
-              type="button"
-              className="wg-opt"
-              onClick={nextHand}
-              data-testid="hearts-next"
-              autoFocus
-            >
-              &gt; NEXT HAND
-            </button>
-          )}
-          {state.phase === 'matchover' && (
-            <button
-              type="button"
-              className="wg-opt"
-              onClick={newMatch}
-              data-testid="hearts-again"
-              autoFocus
-            >
-              &gt; PLAY AGAIN
-            </button>
-          )}
-          <button
-            type="button"
-            className="wg-opt wg-amber"
-            onClick={onExit}
-            data-testid="game-exit"
-          >
-            &gt; EXIT
-          </button>
-        </div>
-
-        <div className="wg-hint">
-          HEARTS = 1 PT, QUEEN OF SPADES = 13. FOLLOW SUIT. LOW SCORE WINS.
-        </div>
       </div>
-    </div>
-  )
+    </GameShell>
+  );
 }
 
-export const entry: GameEntry = { id: 'HEARTS', Component: Hearts }
+export const entry: GameEntry = { id: "HEARTS", Component: Hearts };

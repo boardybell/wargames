@@ -1,477 +1,457 @@
-// BRIDGE. A simplified but correct game of contract bridge. Four hands are
-// dealt (YOU = South, plus West / North / East AI). The auction is simplified:
-// you name a contract level (1-7) and a trump suit (or NO TRUMP) and the AI
-// opponents pass, so you become declarer with North as dummy. Then all 13
-// tricks are played with correct follow-suit and trump rules: you play South
-// and the visible dummy North, the AI plays East and West. Tricks won by your
-// side are counted against the contract (6 + level needed) and the hand is
-// scored made or down. EXIT any time.
-import { useMemo, useState } from 'react'
+// BRIDGE: DECLARER PRACTICE. Choose a contract for a seeded deal, then play
+// South and the face-up dummy North against a partner-aware East/West defense.
+// Undoubled, non-vulnerable duplicate scoring with a breakdown. REPLAY DEAL
+// tries the same cards at a different contract; NEW DEAL shuffles.
+// Rules, scoring and defense live in engines/bridge.ts (pure, tested).
+// Design: docs/games-design-review.md §5.
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { GameEntry, GameProps } from './types'
+import { Action, ActionBar, GameReport, GameResult, GameShell, Panel } from './ui/GameShell'
+import { CardHand, CardTile, TrickTable, groupBySuit, type TrickSeat } from './ui/cards/CardTile'
+import { cue, fmtWLD, newSeed, useEventLog, useGameKeys, useGameRecords, useTimers, type WLD } from './hooks'
+import {
+  SEAT_NAME,
+  STRAIN_NAME,
+  SUITS,
+  contractLabel,
+  deal,
+  defView,
+  defend,
+  hcp,
+  isOver,
+  legalCards,
+  playCard,
+  scoreContract,
+  startPlay,
+  tricksDone,
+  type Card,
+  type PlayState,
+  type Seat,
+  type Strain,
+} from './engines/bridge'
+import './styles/bridge.css'
 
-const SUITS = ['♠', '♥', '♦', '♣'] as const
-const RANKS = [
-  '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A',
-] as const
-type Suit = (typeof SUITS)[number]
-type Rank = (typeof RANKS)[number]
-// Seats go clockwise. YOU sit South; North is your partner (dummy).
-type Seat = 'S' | 'W' | 'N' | 'E'
-const CLOCKWISE: Record<Seat, Seat> = { S: 'W', W: 'N', N: 'E', E: 'S' }
+const STRAINS: readonly Strain[] = ['♣', '♦', '♥', '♠', 'NT']
+const STRAIN_KEY: Record<string, Strain> = { c: '♣', d: '♦', h: '♥', s: '♠', n: 'NT' }
+const AI_MS = 450
+const HOLD_MS = 1200
+const short = (c: Card): string => `${c.rank}${c.suit}`
 
-interface Card {
-  readonly rank: Rank
-  readonly suit: Suit
-  readonly id: string
-}
-
-const rankVal = (r: Rank): number => RANKS.indexOf(r)
-
-function freshDeck(): Card[] {
-  const deck: Card[] = []
-  for (const suit of SUITS)
-    for (const rank of RANKS) deck.push({ rank, suit, id: `${rank}${suit}` })
-  for (let i = deck.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1))
-    const tmp = deck[i]!
-    deck[i] = deck[j]!
-    deck[j] = tmp
-  }
-  return deck
-}
-
-const sortHand = (h: readonly Card[]): Card[] =>
-  [...h].sort((a, b) =>
-    a.suit === b.suit
-      ? rankVal(b.rank) - rankVal(a.rank)
-      : SUITS.indexOf(a.suit) - SUITS.indexOf(b.suit),
-  )
-
-type Trump = Suit | 'NT'
-
-interface Play {
-  readonly seat: Seat
-  readonly card: Card
-}
-
-type Phase = 'bid' | 'play' | 'done'
-
-interface State {
-  hands: Record<Seat, Card[]>
-  trump: Trump
-  level: number
-  phase: Phase
-  turn: Seat
-  trick: Play[]
-  leadSuit: Suit | null
-  nsTricks: number // your side (South + North)
-  ewTricks: number
-  log: string[]
-}
-
-const YOUR_SIDE: ReadonlySet<Seat> = new Set<Seat>(['S', 'N'])
-
-function deal(): Record<Seat, Card[]> {
-  const deck = freshDeck()
-  const hands: Record<Seat, Card[]> = { S: [], W: [], N: [], E: [] }
-  const order: Seat[] = ['S', 'W', 'N', 'E']
-  for (let i = 0; i < deck.length; i++) {
-    hands[order[i % 4]!]!.push(deck[i]!)
-  }
-  return hands
-}
-
-function fresh(): State {
-  return {
-    hands: deal(),
-    trump: 'NT',
-    level: 1,
-    phase: 'bid',
-    turn: 'W', // left of declarer leads the first trick once play starts
-    trick: [],
-    leadSuit: null,
-    nsTricks: 0,
-    ewTricks: 0,
-    log: [],
-  }
-}
-
-// Legal plays: must follow the led suit if able, otherwise anything.
-function legalCards(hand: readonly Card[], lead: Suit | null): Card[] {
-  if (!lead) return [...hand]
-  const inSuit = hand.filter((c) => c.suit === lead)
-  return inSuit.length > 0 ? inSuit : [...hand]
-}
-
-// Decide the winning play of a completed four-card trick.
-function trickWinner(trick: readonly Play[], trump: Trump, lead: Suit): Play {
-  let best = trick[0]!
-  for (const p of trick) {
-    const bestTrump = trump !== 'NT' && best.card.suit === trump
-    const pTrump = trump !== 'NT' && p.card.suit === trump
-    if (pTrump && !bestTrump) {
-      best = p
-    } else if (pTrump && bestTrump) {
-      if (rankVal(p.card.rank) > rankVal(best.card.rank)) best = p
-    } else if (!pTrump && !bestTrump) {
-      // Only cards of the led suit can win a non-trumped trick.
-      if (p.card.suit === lead && best.card.suit === lead) {
-        if (rankVal(p.card.rank) > rankVal(best.card.rank)) best = p
-      } else if (p.card.suit === lead && best.card.suit !== lead) {
-        best = p
-      }
-    }
-  }
-  return best
-}
-
-// AI card choice for a seat: play a legal card. If leading, lead the highest of
-// a long side suit; if following, win cheaply when possible else dump the
-// lowest. Deliberately simple but always legal and mildly sensible.
-function aiPick(hand: readonly Card[], trick: readonly Play[], lead: Suit | null, trump: Trump): Card {
-  const legal = legalCards(hand, lead)
-  if (trick.length === 0) {
-    // Lead the highest card overall (cheap heuristic).
-    return [...legal].sort((a, b) => rankVal(b.rank) - rankVal(a.rank))[0]!
-  }
-  const leadSuit = lead!
-  // Try to win cheaply.
-  const winners = legal.filter((c) => {
-    const trial = [...trick, { seat: 'E' as Seat, card: c }]
-    return trickWinner(trial, trump, leadSuit).card.id === c.id
-  })
-  if (winners.length > 0) {
-    return winners.sort((a, b) => rankVal(a.rank) - rankVal(b.rank))[0]!
-  }
-  // Can't win: throw the lowest legal card.
-  return [...legal].sort((a, b) => rankVal(a.rank) - rankVal(b.rank))[0]!
-}
-
-function CardSpan({ card }: { card: Card }) {
-  const red = card.suit === '♥' || card.suit === '♦'
-  return (
-    <span className={red ? 'wg-red' : undefined}>
-      [{card.rank}
-      {card.suit}]
-    </span>
-  )
-}
-
-const seatName = (s: Seat): string =>
-  s === 'S' ? 'YOU (S)' : s === 'N' ? 'DUMMY (N)' : s === 'W' ? 'WEST' : 'EAST'
-
-// Apply a card from a seat, resolving a completed trick and advancing turn.
-// Returns the next state. Pure, so it is usable from any handler.
-function applyAndAdvance(base: State, seat: Seat, card: Card): State {
-    let s: State = {
-      ...base,
-      hands: { ...base.hands, [seat]: base.hands[seat]!.filter((c) => c.id !== card.id) },
-      trick: [...base.trick, { seat, card }],
-      leadSuit: base.leadSuit ?? card.suit,
-    }
-    const log = [...s.log]
-
-    if (s.trick.length === 4) {
-      const winner = trickWinner(s.trick, s.trump, s.leadSuit!)
-      const winnerSide = YOUR_SIDE.has(winner.seat) ? 'NS' : 'EW'
-      log.push(
-        `TRICK: ${s.trick.map((p) => `${p.seat}:${p.card.rank}${p.card.suit}`).join(' ')} -> ${winner.seat} WINS (${winnerSide}).`,
-      )
-      s = {
-        ...s,
-        trick: [],
-        leadSuit: null,
-        turn: winner.seat,
-        nsTricks: s.nsTricks + (winnerSide === 'NS' ? 1 : 0),
-        ewTricks: s.ewTricks + (winnerSide === 'EW' ? 1 : 0),
-        log: log.slice(-8),
-      }
-      // Hand over?
-      const total = s.nsTricks + s.ewTricks
-      if (total === 13) {
-        const need = 6 + s.level
-        const made = s.nsTricks >= need
-        const diff = s.nsTricks - need
-        const result = made
-          ? `CONTRACT MADE. ${s.nsTricks} TRICKS (NEEDED ${need}).${diff > 0 ? ` +${diff} OVERTRICK${diff > 1 ? 'S' : ''}.` : ''}`
-          : `CONTRACT DOWN ${need - s.nsTricks}. ${s.nsTricks} TRICKS (NEEDED ${need}).`
-        return { ...s, phase: 'done', log: [...s.log, result].slice(-9) }
-      }
-    } else {
-      s = { ...s, turn: CLOCKWISE[seat], log: log.slice(-8) }
-    }
-    return s
-}
-
-// Advance AI (East/West) seats automatically; stop on a human seat (S or N) or
-// when the hand ends. Pure.
-function driveAi(start: State): State {
-  let s = start
-  let guard = 0
-  while (s.phase === 'play' && (s.turn === 'E' || s.turn === 'W') && guard < 60) {
-    guard += 1
-    const hand = s.hands[s.turn]!
-    const card = aiPick(hand, s.trick, s.leadSuit, s.trump)
-    s = applyAndAdvance(s, s.turn, card)
-  }
-  return s
+interface Deal {
+  readonly seed: number
+  readonly no: number
+  readonly attempt: number
 }
 
 function BridgeGame({ onExit }: GameProps) {
-  const [st, setSt] = useState<State>(() => fresh())
+  const rec = useGameRecords('bridge')
+  const timers = useTimers()
+  const log = useEventLog()
+  const [d, setD] = useState<Deal>(() => ({ seed: newSeed(), no: 1, attempt: 1 }))
+  const [level, setLevel] = useState(3)
+  const [strain, setStrain] = useState<Strain>('NT')
+  const [ps, setPs] = useState<PlayState | null>(null)
+  const [session, setSession] = useState({ total: 0, deals: 0 })
+  const psRef = useRef(ps)
+  psRef.current = ps
 
-  // ---- auction ----
-  // Begin play. West (left of the South declarer) leads trick one, so drive the
-  // AI forward immediately until a seat you control (South or dummy North) is on
-  // turn. No render-time nudge needed.
-  const startPlay = (level: number, trump: Trump): void => {
-    setSt((prev) => {
-      const begun: State = {
-        ...prev,
-        level,
-        trump,
-        phase: 'play',
-        turn: 'W',
-        trick: [],
-        leadSuit: null,
-        nsTricks: 0,
-        ewTricks: 0,
-        log: [
-          `CONTRACT: ${level}${trump === 'NT' ? 'NT' : trump}. YOU DECLARE, NORTH IS DUMMY.`,
-          'WEST LEADS.',
-        ],
+  const hands = useMemo(() => deal(d.seed), [d.seed])
+  const phase: 'bid' | 'play' | 'done' = !ps ? 'bid' : isOver(ps) ? 'done' : 'play'
+  const score = ps ? scoreContract(ps.level, ps.strain, ps.ns) : null
+
+  const finish = (s: PlayState): void => {
+    const sc = scoreContract(s.level, s.strain, s.ns)
+    rec.recordOnce(`${d.seed}-${d.attempt}`, () => {
+      rec.tally('contracts', sc.made ? 'win' : 'lose')
+      rec.update<number>('best', (p) => Math.max(p ?? -Infinity, sc.total))
+    })
+    setSession((x) => ({ total: x.total + sc.total, deals: x.deals + 1 }))
+    log.push({
+      text: `${contractLabel(s.level, s.strain)} ${sc.made ? 'MADE' : `DOWN ${sc.need - sc.tricks}`} WITH ${s.ns} TRICKS: ${sc.total > 0 ? '+' : ''}${sc.total}.`,
+      kind: sc.made ? 'good' : 'bad',
+    })
+    if (sc.made) cue.win()
+    else cue.lose()
+  }
+
+  const commit = (prev: PlayState, next: PlayState): void => {
+    setPs(next)
+    const lt = next.lastTrick
+    if (lt && lt !== prev.lastTrick) {
+      log.push({
+        text: `TRICK ${lt.no}: ${lt.plays.map((p) => `${p.seat} ${short(p.card)}`).join(' · ')}. ${lt.why}`,
+        kind: lt.winner === 'N' || lt.winner === 'S' ? 'good' : 'bad',
+      })
+      if (!(lt.winner === 'N' || lt.winner === 'S')) cue.tick()
+    }
+    if (isOver(next) && !isOver(prev)) finish(next)
+  }
+
+  // Defenders play on a short timer; a completed trick holds on the table first.
+  useEffect(() => {
+    if (!ps || isOver(ps) || ps.turn === 'N' || ps.turn === 'S') return
+    const justClosed = ps.trick.length === 0 && ps.lastTrick !== null
+    timers.later(() => {
+      const prev = psRef.current
+      if (!prev || isOver(prev) || prev.turn === 'N' || prev.turn === 'S') return
+      const ch = defend(defView(prev, prev.turn))
+      cue.card()
+      commit(prev, playCard(prev, prev.turn, ch.card, `${SEAT_NAME[prev.turn]} ${ch.why}.`))
+    }, justClosed ? HOLD_MS : AI_MS)
+    return timers.clear
+  }, [ps])
+
+  const bid = (): void => {
+    if (phase !== 'bid') return
+    cue.select()
+    log.push({ text: `DEAL ${d.no}${d.attempt > 1 ? ` (REPLAY ${d.attempt})` : ''}: CONTRACT ${contractLabel(level, strain)} BY SOUTH. NEED ${6 + level} TRICKS. WEST LEADS.` })
+    setPs(startPlay(hands, level, strain))
+  }
+
+  const humanPlay = (seat: Seat, c: Card): void => {
+    if (!ps || phase !== 'play' || ps.turn !== seat) return
+    if (!legalCards(ps.hands[seat], ps.trick).some((x) => x.id === c.id)) {
+      cue.deny()
+      return
+    }
+    cue.card()
+    commit(ps, playCard(ps, seat, c))
+  }
+
+  const replay = (): void => {
+    timers.clear()
+    setPs(null)
+    setD((x) => ({ ...x, attempt: x.attempt + 1 }))
+    log.push({ text: `REPLAY DEAL ${d.no}: SAME CARDS. CHOOSE A DIFFERENT CONTRACT.` })
+  }
+  const newDeal = (): void => {
+    timers.clear()
+    setPs(null)
+    setD((x) => ({ seed: newSeed(), no: x.no + 1, attempt: 1 }))
+  }
+  const restart = (): void => {
+    timers.clear()
+    log.reset()
+    setPs(null)
+    setSession({ total: 0, deals: 0 })
+    setD({ seed: newSeed(), no: 1, attempt: 1 })
+  }
+
+  useGameKeys((k) => {
+    const key = k.toLowerCase()
+    if (phase === 'bid') {
+      if (/^[1-7]$/.test(key)) {
+        setLevel(Number(key))
+        cue.select()
+        return true
       }
-      return driveAi(begun)
-    })
-  }
+      if (STRAIN_KEY[key]) {
+        setStrain(STRAIN_KEY[key]!)
+        cue.select()
+        return true
+      }
+      if (key === 'b') {
+        bid()
+        return true
+      }
+    }
+    if (phase === 'done') {
+      if (key === 'r') {
+        replay()
+        return true
+      }
+      if (key === 'x') {
+        newDeal()
+        return true
+      }
+    }
+    return false
+  })
 
-  const humanPlay = (seat: Seat, card: Card): void => {
-    setSt((prev) => {
-      if (prev.phase !== 'play' || prev.turn !== seat) return prev
-      const legal = legalCards(prev.hands[seat]!, prev.leadSuit)
-      if (!legal.some((c) => c.id === card.id)) return prev
-      const after = applyAndAdvance(prev, seat, card)
-      return driveAi(after)
-    })
-  }
+  // ---------------------------------------------------------------- view
+  const active: Seat | null = phase === 'play' && ps && (ps.turn === 'N' || ps.turn === 'S') ? ps.turn : null
+  const legal = useMemo(() => (active && ps ? new Set(legalCards(ps.hands[active], ps.trick).map((c) => c.id)) : new Set<string>()), [active, ps])
+  const need = 6 + (ps?.level ?? level)
+  const preview = scoreContract(level, strain, 6 + level)
+  const down1 = scoreContract(level, strain, 5 + level)
 
-  const youToPlay = st.phase === 'play' && (st.turn === 'S' || st.turn === 'N')
-
-  const youHand = useMemo(() => sortHand(st.hands.S), [st.hands.S])
-  const dummyHand = useMemo(() => sortHand(st.hands.N), [st.hands.N])
-
-  const activeSeat: Seat | null = youToPlay ? st.turn : null
-  const legalNow = useMemo(() => {
-    if (!activeSeat) return new Set<string>()
-    return new Set(legalCards(st.hands[activeSeat]!, st.leadSuit).map((c) => c.id))
-  }, [activeSeat, st.hands, st.leadSuit])
-
-  const playAgain = (): void => setSt(fresh())
-
-  const contractLabel = `${st.level}${st.trump === 'NT' ? 'NT' : st.trump}`
-  const need = 6 + st.level
-
-  return (
-    <div className="wg-screen" data-testid="game-bridge">
-      <div className="wg-out">
-        <div className="wg-dim">WOPR CONTRACT BRIDGE</div>
-
-        {st.phase === 'bid' && (
-          <Auction onBid={startPlay} youHand={youHand} />
-        )}
-
-        {st.phase !== 'bid' && (
-          <>
-            <div className="wg-dim" style={{ marginBottom: '0.4rem' }}>
-              CONTRACT {contractLabel}  NEED {need}   YOUR TRICKS {st.nsTricks} /
-              OPP {st.ewTricks}
-              {activeSeat ? `   PLAY FOR ${seatName(activeSeat)}` : ''}
+  const seatHand = (seat: 'N' | 'S') => {
+    const cards = ps ? ps.hands[seat] : hands[seat]
+    const isActive = active === seat
+    const label =
+      seat === 'N'
+        ? `NORTH · DUMMY${phase === 'bid' ? ' · SHOWN FOR PRACTICE' : ''}${isActive ? ' · PLAY FROM NORTH' : ''}`
+        : `SOUTH · YOU, DECLARER${isActive ? ' · PLAY FROM SOUTH' : ''}`
+    return (
+      <div className={`br-hand${isActive ? ' is-active' : ''}`} data-testid={`bridge-hand-${seat.toLowerCase()}`}>
+        <CardHand
+          label={label}
+          total={phase === 'bid' ? `${hcp(cards)} HCP` : undefined}
+          inactiveReason={phase === 'play' && !isActive ? (ps && ps.turn !== seat && active ? `PLAY FROM ${SEAT_NAME[active]}.` : ps && !active ? `${SEAT_NAME[ps.turn]} TO PLAY.` : undefined) : undefined}
+        >
+          {groupBySuit(cards, SUITS).map((g) => (
+            <div key={g.suit} className="gs-suitgroup" role="group" aria-label={`${SEAT_NAME[seat]} ${STRAIN_NAME[g.suit as Strain]}`}>
+              {g.items.map(({ card: c }) => {
+                const ok = isActive && legal.has(c.id)
+                return phase === 'bid' ? (
+                  <CardTile key={c.id} card={c} size="sm" testId={`bridge-${seat.toLowerCase()}-${c.id}`} />
+                ) : (
+                  <CardTile
+                    key={c.id}
+                    card={c}
+                    eligible={ok}
+                    disabled={!ok}
+                    onClick={() => humanPlay(seat, c)}
+                    testId={`bridge-${seat.toLowerCase()}-${c.id}`}
+                    label={`${c.rank} of ${STRAIN_NAME[c.suit].toLowerCase()}, from ${SEAT_NAME[seat].toLowerCase()}`}
+                  />
+                )
+              })}
             </div>
-
-            {/* Dummy (North) is face up; you play it too. */}
-            <HandRow
-              label="DUMMY (N)"
-              hand={dummyHand}
-              active={activeSeat === 'N'}
-              legal={activeSeat === 'N' ? legalNow : null}
-              onPlay={(c) => humanPlay('N', c)}
-              testPrefix="bridge-n"
-            />
-
-            <div style={{ margin: '0.5rem 0' }}>
-              <span className="wg-amber">TRICK </span>
-              {st.trick.length === 0 ? (
-                <span className="wg-dim"> (NONE PLAYED)</span>
-              ) : (
-                st.trick.map((p) => (
-                  <span key={p.card.id}>
-                    {' '}
-                    {p.seat}:<CardSpan card={p.card} />
-                  </span>
-                ))
-              )}
-            </div>
-
-            <HandRow
-              label="YOU (S)"
-              hand={youHand}
-              active={activeSeat === 'S'}
-              legal={activeSeat === 'S' ? legalNow : null}
-              onPlay={(c) => humanPlay('S', c)}
-              testPrefix="bridge-s"
-            />
-
-            <div className="wg-log" style={{ marginTop: '0.5rem' }}>
-              {st.log.map((l, i) => (
-                <span key={i}>{l}</span>
-              ))}
-            </div>
-
-            {st.phase === 'done' && (
-              <div
-                className={st.nsTricks >= need ? 'wg-big wg-amber' : 'wg-big wg-red'}
-                style={{ marginTop: '0.4rem' }}
-              >
-                {st.nsTricks >= need ? 'CONTRACT MADE.' : 'CONTRACT DOWN.'}
-              </div>
-            )}
-          </>
-        )}
-
-        <div className="wg-opts">
-          {st.phase === 'done' && (
-            <button
-              type="button"
-              className="wg-opt"
-              onClick={playAgain}
-              data-testid="bridge-again"
-              autoFocus
-            >
-              &gt; PLAY AGAIN
-            </button>
-          )}
-          <button
-            type="button"
-            className="wg-opt wg-amber"
-            onClick={onExit}
-            data-testid="game-exit"
-          >
-            &gt; EXIT
-          </button>
-        </div>
-
-        {st.phase === 'play' && (
-          <div className="wg-hint">
-            FOLLOW SUIT IF YOU CAN. TRUMPS BEAT OTHER SUITS. WIN {need} TRICKS TO
-            MAKE {contractLabel}.
-          </div>
-        )}
+          ))}
+          {cards.length === 0 && <span className="gs-hand-reason">NO CARDS LEFT.</span>}
+        </CardHand>
       </div>
+    )
+  }
+
+  // Trick table: trick in progress, else the completed trick until your next play.
+  const showing = ps && ps.trick.length > 0 ? { plays: ps.trick, done: false } : { plays: ps?.lastTrick?.plays ?? [], done: !!ps?.lastTrick }
+  const lt = ps?.lastTrick ?? null
+  const seatInfo = (s: Seat): TrickSeat => {
+    const p = showing.plays.find((x) => x.seat === s)
+    const n = ps ? ps.hands[s].length : 13
+    const voids = ps?.voids[s] ?? []
+    return {
+      name: s === 'S' ? 'SOUTH' : s === 'N' ? 'NORTH' : `${SEAT_NAME[s]} · ${n}`,
+      card: p?.card,
+      winner: showing.done && lt?.winner === s,
+      active: phase === 'play' && ps?.turn === s,
+      lead: showing.plays[0]?.seat === s,
+      note: voids.length ? `VOID ${voids.join('')}` : undefined,
+    }
+  }
+  const center = (
+    <div className="br-center">
+      {phase === 'bid' ? (
+        <span>CHOOSE A CONTRACT</span>
+      ) : showing.done && lt ? (
+        <>
+          <strong>
+            TRICK {lt.no} TO {lt.winner === 'N' || lt.winner === 'S' ? 'YOU' : 'DEFENSE'}
+          </strong>
+          <span>{lt.why}</span>
+        </>
+      ) : (
+        <span>
+          {ps ? contractLabel(ps.level, ps.strain) : ''} · TRICK {ps ? tricksDone(ps) + 1 : 1}/13
+        </span>
+      )}
     </div>
   )
-}
 
-function Auction({
-  onBid,
-  youHand,
-}: {
-  onBid: (level: number, trump: Trump) => void
-  youHand: readonly Card[]
-}) {
-  const [level, setLevel] = useState(1)
-  const [trump, setTrump] = useState<Trump>('NT')
-  return (
-    <div style={{ marginBottom: '0.5rem' }}>
-      <div className="wg-dim" style={{ marginBottom: '0.4rem' }}>
-        YOU DECLARE. NAME A CONTRACT; THE OPPONENTS PASS. NORTH IS YOUR DUMMY.
-      </div>
-      <HandRow label="YOU (S)" hand={youHand} active={false} legal={null} onPlay={() => {}} testPrefix="bridge-bid-s" />
-      <div style={{ marginTop: '0.5rem', marginBottom: '0.3rem' }}>
-        <span className="wg-amber">LEVEL </span>
+  const contractPicker = (
+    <Panel title={d.attempt > 1 ? `REPLAY DEAL ${d.no}: PICK A NEW CONTRACT` : 'YOUR CONTRACT'}>
+      <div className="br-levels" role="group" aria-label="Contract level">
         {[1, 2, 3, 4, 5, 6, 7].map((n) => (
           <button
             key={n}
             type="button"
-            className={level === n ? 'wg-opt wg-amber' : 'wg-opt'}
-            style={{ border: level === n ? '1px solid var(--amber)' : '1px solid transparent' }}
-            onClick={() => setLevel(n)}
+            className="gs-btn br-pick"
+            aria-pressed={level === n}
+            aria-label={`Level ${n}: ${6 + n} tricks`}
+            onClick={() => {
+              setLevel(n)
+              cue.select()
+            }}
             data-testid={`bridge-level-${n}`}
           >
             {n}
           </button>
         ))}
       </div>
-      <div style={{ marginBottom: '0.5rem' }}>
-        <span className="wg-amber">TRUMP </span>
-        {(['♣', '♦', '♥', '♠', 'NT'] as const).map((t) => (
+      <div className="br-strains" role="group" aria-label="Trump strain">
+        {STRAINS.map((t) => (
           <button
             key={t}
             type="button"
-            className={trump === t ? 'wg-opt wg-amber' : 'wg-opt'}
-            style={{ border: trump === t ? '1px solid var(--amber)' : '1px solid transparent' }}
-            onClick={() => setTrump(t)}
+            className={`gs-btn br-pick${t === '♥' || t === '♦' ? ' br-red' : ''}`}
+            aria-pressed={strain === t}
+            onClick={() => {
+              setStrain(t)
+              cue.select()
+            }}
             data-testid={`bridge-trump-${t === 'NT' ? 'nt' : t}`}
           >
-            {t}
+            {t === 'NT' ? 'NO TRUMP' : `${t} ${STRAIN_NAME[t]}`}
           </button>
         ))}
       </div>
-      <div className="wg-opts">
-        <button
-          type="button"
-          className="wg-opt"
-          onClick={() => onBid(level, trump)}
-          data-testid="bridge-confirm-bid"
-          autoFocus
-        >
-          &gt; BID {level}
-          {trump === 'NT' ? 'NT' : trump} AND PLAY (NEED {6 + level} TRICKS)
-        </button>
-      </div>
-    </div>
+      <dl className="br-preview" data-testid="bridge-preview">
+        <div>
+          <dt>NEED</dt>
+          <dd>{6 + level} TRICKS</dd>
+        </div>
+        <div>
+          <dt>IF MADE</dt>
+          <dd className="gs-tone-good">
+            +{preview.total} {preview.lines.find((l) => /GAME|PARTSCORE/.test(l.label))!.label.replace(' BONUS', '')}
+            {level >= 6 ? ' + SLAM' : ''}
+          </dd>
+        </div>
+        <div>
+          <dt>EACH DOWN</dt>
+          <dd className="gs-tone-red">{down1.total}</dd>
+        </div>
+      </dl>
+      <ActionBar>
+        <Action variant="primary" onClick={bid} testId="bridge-confirm-bid" shortcut="B">
+          PLAY {contractLabel(level, strain)}
+        </Action>
+      </ActionBar>
+    </Panel>
   )
-}
 
-function HandRow({
-  label,
-  hand,
-  active,
-  legal,
-  onPlay,
-  testPrefix,
-}: {
-  label: string
-  hand: readonly Card[]
-  active: boolean
-  legal: Set<string> | null
-  onPlay: (c: Card) => void
-  testPrefix: string
-}) {
+  const contractPanel = ps && (
+    <Panel title={`CONTRACT ${contractLabel(ps.level, ps.strain)} · ${STRAIN_NAME[ps.strain]}`}>
+      <dl className="br-preview">
+        <div>
+          <dt>YOUR TRICKS</dt>
+          <dd>
+            {ps.ns}/{need}
+          </dd>
+        </div>
+        <div>
+          <dt>DEFENSE</dt>
+          <dd className={ps.ew > 13 - need ? 'gs-tone-red' : undefined}>
+            {ps.ew}/{14 - need}
+          </dd>
+        </div>
+        <div>
+          <dt>IF MADE</dt>
+          <dd>+{scoreContract(ps.level, ps.strain, need).total}</dd>
+        </div>
+      </dl>
+    </Panel>
+  )
+
+  const lastPanel = lt && (
+    <Panel title={`LAST TRICK · ${lt.no}/13`}>
+      <div className="br-last" data-testid="bridge-last-trick">
+        {lt.plays.map((p) => (
+          <span key={p.seat} className="br-last-play">
+            <CardTile card={p.card} size="sm" mark={p.seat === lt.winner ? 'win' : 'none'} badge={p.seat === lt.winner ? 'WINS' : undefined} />
+            {p.seat}
+          </span>
+        ))}
+      </div>
+      <p data-testid="bridge-last-why">{lt.why}</p>
+      {lt.notes.length > 0 && (
+        <ul className="br-notes">
+          {lt.notes.map((n) => (
+            <li key={n}>{n}</li>
+          ))}
+        </ul>
+      )}
+    </Panel>
+  )
+
+  const result = phase === 'done' && ps && score && (
+    <GameResult
+      outcome={score.made ? 'win' : 'lose'}
+      headline={score.made ? `${contractLabel(ps.level, ps.strain)} MADE` : `${contractLabel(ps.level, ps.strain)} DOWN ${score.need - score.tricks}`}
+      reason={`YOU TOOK ${score.tricks} OF 13 TRICKS; THE CONTRACT NEEDED ${score.need}.`}
+      testId="bridge-outcome"
+    >
+      <table className="br-score" data-testid="bridge-score">
+        <tbody>
+          {score.lines.map((l) => (
+            <tr key={l.label}>
+              <th scope="row">{l.label}</th>
+              <td className={l.points < 0 ? 'gs-tone-red' : undefined}>{l.points > 0 ? `+${l.points}` : l.points}</td>
+            </tr>
+          ))}
+          <tr className="br-score-total">
+            <th scope="row">DEAL SCORE</th>
+            <td>{score.total > 0 ? `+${score.total}` : score.total}</td>
+          </tr>
+        </tbody>
+      </table>
+      <Action variant="primary" onClick={replay} testId="bridge-replay" shortcut="R">
+        REPLAY DEAL
+      </Action>
+      <Action onClick={newDeal} testId="bridge-again" shortcut="X">
+        NEW DEAL
+      </Action>
+    </GameResult>
+  )
+
+  const best = rec.get<number | undefined>('best', undefined)
+  let phaseText: string
+  if (phase === 'bid') phaseText = `CHOOSE LEVEL AND STRAIN · ${contractLabel(level, strain)} NEEDS ${6 + level} TRICKS`
+  else if (phase === 'done') phaseText = score?.made ? 'CONTRACT MADE' : 'CONTRACT DEFEATED'
+  else if (active) phaseText = `PLAY FROM ${SEAT_NAME[active]}${ps!.trick.length ? ` · FOLLOW ${STRAIN_NAME[ps!.trick[0]!.card.suit]} IF ABLE` : ' · YOUR LEAD'}`
+  else phaseText = `${SEAT_NAME[ps!.turn]} TO PLAY`
+
   return (
-    <div style={{ marginBottom: '0.3rem' }}>
-      <div className="wg-amber" style={{ marginBottom: '0.15rem' }}>
-        {label}
-        {active ? '  <-- YOUR PLAY' : ''}
+    <GameShell
+      slug="bridge"
+      title="BRIDGE · DECLARER PRACTICE"
+      layout="table"
+      objective="DECLARE FROM SOUTH WITH NORTH AS DUMMY. CHOOSE A CONTRACT, THEN TAKE THE TRICKS IT NEEDS."
+      phase={phaseText}
+      phaseTone={phase === 'play' && !active ? 'dim' : 'amber'}
+      metrics={[
+        { label: 'DEAL', value: d.attempt > 1 ? `${d.no} · TRY ${d.attempt}` : d.no },
+        { label: 'CONTRACT', value: ps ? contractLabel(ps.level, ps.strain) : '—' },
+        { label: 'TRICKS', value: ps ? `${ps.ns}/${need}` : '—', tone: ps && ps.ns >= need ? 'good' : 'normal' },
+        { label: 'SESSION', value: session.deals ? `${session.total > 0 ? '+' : ''}${session.total}` : '0', tone: session.total < 0 ? 'red' : 'normal' },
+        { label: 'MADE-DOWN', value: fmtWLD(rec.get<WLD | undefined>('contracts', undefined)), tone: 'dim' },
+        { label: 'BEST', value: best === undefined ? '—' : `${best > 0 ? '+' : ''}${best}`, tone: 'dim' },
+      ]}
+      help={
+        <>
+          <p>DECLARER PRACTICE, NOT A FULL BRIDGE GAME: YOU NAME THE CONTRACT AND THE DEFENDERS PASS. THERE IS NO AUCTION, DOUBLING OR VULNERABILITY.</p>
+          <ul>
+            <li>YOU ARE SOUTH. NORTH IS YOUR DUMMY: ITS HAND IS SHOWN BEFORE YOU CHOOSE, AS IF PARTNER HAD DESCRIBED IT IN THE AUCTION.</li>
+            <li>A CONTRACT OF LEVEL N NEEDS 6 + N TRICKS. THE STRAIN IS TRUMP, OR NO TRUMP.</li>
+            <li>WEST LEADS. FOLLOW THE LED SUIT IF YOU CAN; OTHERWISE PLAY ANY CARD. THE HIGHEST TRUMP WINS, ELSE THE HIGHEST CARD OF THE LED SUIT.</li>
+            <li>YOU PLAY BOTH SOUTH AND NORTH: THE ACTIVE HAND IS LABELED PLAY FROM NORTH OR PLAY FROM SOUTH.</li>
+            <li>SCORING (UNDOUBLED, NOT VULNERABLE): CLUBS/DIAMONDS 20 A TRICK, HEARTS/SPADES 30, NO TRUMP 40 + 30. 100+ CONTRACT POINTS = GAME (+300), ELSE PARTSCORE (+50). SMALL SLAM +500, GRAND SLAM +1000. OVERTRICKS AT TRICK VALUE. EACH UNDERTRICK -50.</li>
+            <li>REPLAY DEAL PLAYS THE SAME CARDS AT A NEW CONTRACT. NEW DEAL SHUFFLES.</li>
+            <li>DEFENDERS SEE ONLY THEIR OWN HAND, DUMMY AND PLAYED CARDS. THEY DUCK WHEN PARTNER IS SAFELY WINNING, KEEP TRUMPS FOR RUFFS AND TRACK SHOWN VOIDS.</li>
+            <li>KEYS: 1-7 LEVEL · C D H S N STRAIN · B PLAY CONTRACT · R REPLAY · X NEW DEAL.</li>
+          </ul>
+        </>
+      }
+      onRestart={restart}
+      inProgress={phase === 'play' || session.deals > 0}
+      restartLabel="NEW SESSION"
+      onExit={() => {
+        timers.clear()
+        onExit()
+      }}
+      side={
+        <>
+          {result}
+          {phase === 'bid' && contractPicker}
+          {phase !== 'bid' && contractPanel}
+          {lastPanel}
+        </>
+      }
+      report={<GameReport events={log.events} />}
+      announce={log.events[log.events.length - 1]?.text}
+    >
+      <div className={`br-compass${phase === 'bid' ? ' is-bid' : ''}`}>
+        {seatHand('N')}
+        <TrickTable
+          seats={{ N: seatInfo('N'), E: seatInfo('E'), S: seatInfo('S'), W: seatInfo('W') }}
+          center={center}
+          testId="bridge-table"
+        />
+        {seatHand('S')}
       </div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.1rem' }}>
-        {hand.map((c) => {
-          const playable = active && (!legal || legal.has(c.id))
-          return (
-            <button
-              key={c.id}
-              type="button"
-              className="wg-opt"
-              style={{ opacity: active && legal && !legal.has(c.id) ? 0.4 : 1 }}
-              disabled={!playable}
-              onClick={() => onPlay(c)}
-              data-testid={`${testPrefix}-${c.id}`}
-            >
-              <CardSpan card={c} />
-            </button>
-          )
-        })}
-      </div>
-    </div>
+    </GameShell>
   )
 }
 

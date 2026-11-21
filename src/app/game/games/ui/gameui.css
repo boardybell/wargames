@@ -944,3 +944,9 @@ button.gs-card.is-selected:hover {
     transform: none;
   }
 }
+
+/* Card focus is blue and dashed so it never reads as amber selection. */
+.gs-shell button.gs-card:focus-visible {
+  outline: 2px dashed var(--gs-mine);
+  outline-offset: 3px;
+}

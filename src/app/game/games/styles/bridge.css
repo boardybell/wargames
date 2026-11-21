@@ -1,0 +1,156 @@
+/* BRIDGE declarer practice layout. Shared look lives in ui/gameui.css. */
+
+.br-compass {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.br-compass .gs-trick {
+  max-width: none;
+  width: 100%;
+  box-sizing: border-box;
+}
+.br-hand {
+  padding: 8px 10px;
+  border: 1px solid var(--gs-rule);
+}
+.br-hand.is-active {
+  border-color: var(--gs-amber);
+  box-shadow: inset 0 0 0 1px rgba(255, 184, 77, 0.25);
+}
+.br-hand.is-active .gs-hand-label {
+  color: var(--gs-amber);
+}
+.br-hand .gs-hand-cards {
+  gap: 10px 0;
+}
+.br-hand .gs-suitgroup {
+  flex-wrap: wrap;
+}
+.br-compass button.gs-card:focus-visible {
+  outline: 2px dashed var(--gs-mine);
+  outline-offset: 3px;
+}
+
+.br-center {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 18ch;
+}
+.br-center strong {
+  font-weight: normal;
+  color: var(--gs-amber);
+}
+
+/* contract picker: 44px level targets, labeled strains, clear selected state */
+.br-levels {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(44px, 1fr));
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.br-strains {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.br-strains .br-pick:last-child {
+  grid-column: 1 / -1;
+}
+.br-pick {
+  min-width: 44px;
+  padding: 6px 4px;
+}
+.br-pick[aria-pressed='true'] {
+  border-width: 2px;
+  background: rgba(255, 184, 77, 0.18);
+  color: var(--gs-amber);
+}
+.br-pick.br-red:not([aria-pressed='true']) {
+  color: #ff9a9a;
+}
+
+.br-preview {
+  display: grid;
+  grid-template-columns: repeat(3, auto);
+  gap: 4px 14px;
+  margin: 0 0 10px;
+  font-variant-numeric: tabular-nums;
+}
+.br-preview dt {
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  color: var(--gs-muted);
+  text-shadow: none;
+}
+.br-preview dd {
+  margin: 0;
+  font-size: 18px;
+}
+
+.br-last {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.br-last-play {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  font-size: 12px;
+  color: var(--gs-muted);
+  text-shadow: none;
+}
+.br-notes {
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 14px;
+  color: var(--gs-muted);
+  text-shadow: none;
+}
+
+.br-score {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+  margin-bottom: 4px;
+}
+.br-score th {
+  text-align: left;
+  font-weight: normal;
+  font-size: 14px;
+  color: var(--gs-muted);
+  text-shadow: none;
+  padding: 3px 0;
+}
+.br-score td {
+  text-align: right;
+  padding: 3px 0;
+}
+.br-score-total th,
+.br-score-total td {
+  border-top: 1px solid var(--gs-rule-strong);
+  color: #d9ecff;
+  font-size: 18px;
+}
+
+@media (max-width: 760px) {
+  .br-levels {
+    gap: 4px;
+  }
+  .br-compass .gs-trick {
+    padding: 8px 4px;
+    gap: 4px 6px;
+  }
+}
+
+/* Phone: the table is empty while choosing a contract; keep the hands and picker close. */
+@media (max-width: 760px) {
+  .br-compass.is-bid .gs-trick {
+    display: none;
+  }
+}

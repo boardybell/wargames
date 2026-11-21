@@ -1,0 +1,136 @@
+/* HEARTS-specific layout. Shared look lives in ui/gameui.css. */
+
+/* Focus and selection are different signals: selection is the amber border,
+   raised tile and PASS badge; keyboard focus is a blue dashed ring. */
+.ht-table button.gs-card:focus-visible,
+.ht-side button.gs-card:focus-visible {
+  outline: 2px dashed var(--gs-mine);
+  outline-offset: 3px;
+}
+.ht-table button.gs-card.is-selected:focus-visible {
+  outline-color: #d9ecff;
+}
+
+.ht-table {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.ht-table .gs-trick {
+  max-width: none;
+  width: 100%;
+  box-sizing: border-box;
+}
+.ht-center {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 16ch;
+}
+.ht-center strong {
+  color: var(--gs-amber);
+  font-weight: normal;
+}
+.ht-hand .gs-hand-cards {
+  gap: 10px 0;
+}
+.ht-hand .gs-suitgroup {
+  flex-wrap: wrap;
+}
+
+/* scoreboard: match totals are the big number, hand points a small column */
+.ht-score {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+.ht-score th {
+  font-weight: normal;
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  color: var(--gs-muted);
+  text-shadow: none;
+  text-align: right;
+  padding: 0 4px 4px;
+}
+.ht-score th:first-child,
+.ht-score td:first-child {
+  text-align: left;
+}
+.ht-score td {
+  padding: 3px 4px;
+  border-top: 1px solid var(--gs-rule);
+  text-align: right;
+}
+.ht-score .ht-total {
+  font-size: 22px;
+  color: #d9ecff;
+}
+.ht-score .ht-handpts {
+  font-size: 14px;
+  color: var(--gs-muted);
+}
+.ht-score tr.is-you td:first-child {
+  color: var(--gs-mine);
+}
+.ht-score tr.is-low .ht-total {
+  color: var(--gs-good);
+}
+.ht-score tr.is-hot .ht-handpts {
+  color: var(--gs-them);
+}
+
+/* three fixed pass slots */
+.ht-slots {
+  display: flex;
+  gap: 8px;
+  margin: 4px 0 8px;
+}
+.ht-slots .gs-card-empty {
+  display: inline-grid;
+  place-items: center;
+  font-size: 12px;
+  color: var(--gs-muted);
+}
+
+/* last trick strip */
+.ht-last {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: flex-end;
+}
+.ht-last-play {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  font-size: 12px;
+  color: var(--gs-muted);
+  text-shadow: none;
+}
+.ht-notes {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 14px;
+  color: var(--gs-muted);
+  text-shadow: none;
+}
+
+@media (max-width: 760px) {
+  .ht-table .gs-trick {
+    padding: 8px 4px;
+    gap: 4px 6px;
+  }
+  .ht-center {
+    font-size: 12px;
+  }
+}
+
+/* Phone: nothing is on the table while passing; lead with the hand. */
+@media (max-width: 760px) {
+  .ht-table.is-pass .gs-trick {
+    display: none;
+  }
+}
