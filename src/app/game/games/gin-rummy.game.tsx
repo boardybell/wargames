@@ -7,7 +7,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { GameEntry, GameProps } from './types'
 import { Action, ActionBar, GameReport, GameResult, GameShell, Panel, Segmented } from './ui/GameShell'
 import { CardHand, CardTile } from './ui/cards/CardTile'
-import { cue, newSeed, useEventLog, useGameKeys, useGameRecords, useTimers, fmtWLD, type WLD } from './hooks'
+import { cue, newSeed, useEventLog, useGameKeys, useGameRecords, usePhone, useTimers, fmtWLD, type WLD } from './hooks'
 import {
   BOX_BONUS,
   GAME_BONUS,
@@ -95,6 +95,7 @@ function GinRummy({ onExit }: GameProps) {
   const rec = useGameRecords('gin-rummy')
   const timers = useTimers()
   const log = useEventLog()
+  const phone = usePhone()
   const [diff, setDiff] = useState<Difficulty>('standard')
   const [matchDiff, setMatchDiff] = useState<Difficulty>('standard')
   const [match, setMatch] = useState<MatchState>(newMatch)
@@ -387,7 +388,7 @@ function GinRummy({ onExit }: GameProps) {
   } else {
     const selCard = sel ? youHand.find((c) => c.id === sel) : undefined
     side = (
-      <Panel title="DISCARD">
+      <Panel title="DISCARD" className="gin-discard">
         {selCard ? (
           <p className="gin-after" data-testid="gin-after">
             AFTER DISCARD: {after}
@@ -444,6 +445,8 @@ function GinRummy({ onExit }: GameProps) {
     </>
   )
 
+  // Phone: DISCARD / KNOCK sit right above the hand, beside its selected-card summary.
+  const discardInFelt = phone && !over && !handOver && mine && hand.stage === 'discard'
   const woprFinal = handOver ? finalView('WOPR') : null
   const youFinal = handOver ? finalView('YOU') : null
   const inProgress = match.history.length > 0 || hand.stage !== 'upcard' || hand.upcardPasses > 0
@@ -500,7 +503,7 @@ function GinRummy({ onExit }: GameProps) {
         timers.clear()
         onExit()
       }}
-      side={side}
+      side={discardInFelt ? undefined : side}
       report={report}
       announce={log.events[log.events.length - 1]?.text}
     >
@@ -543,6 +546,8 @@ function GinRummy({ onExit }: GameProps) {
             <span>DISCARD {hand.discard.length}</span>
           </div>
         </div>
+
+        {discardInFelt && side}
 
         <CardHand
           label={handOver ? `YOU · ${youFinal!.dw} DEADWOOD` : 'YOUR HAND'}

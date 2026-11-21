@@ -6,7 +6,7 @@ import { useState } from 'react'
 import type { GameEntry, GameProps } from './types'
 import { Action, GameReport, GameResult, GameShell, Panel, Segmented } from './ui/GameShell'
 import { GridBoard } from './ui/boards/GridBoard'
-import { cue, fmtWLD, useEventLog, useGameKeys, useGameRecords, type WLD } from './hooks'
+import { cue, fmtWLD, useEventLog, useGameKeys, useGameRecords, usePhone, type WLD } from './hooks'
 import {
   ACTS,
   COST,
@@ -196,6 +196,7 @@ function FighterCombat({ onExit }: GameProps) {
     setM({ ...m, you: r.you, foe: r.foe, turn: m.turn + 1, end: r.end, lastFoe: fAct })
   }
 
+  const phone = usePhone()
   useGameKeys((k) => {
     const key = k.toLowerCase()
     if (m.end) return false
@@ -328,7 +329,7 @@ function FighterCombat({ onExit }: GameProps) {
       inProgress={!m.end && m.turn > 1}
       restartLabel="RESTART SCENARIO"
       onExit={onExit}
-      side={side}
+      side={phone ? undefined : side}
       report={<GameReport events={log.events} />}
       announce={announce}
     >
@@ -358,6 +359,8 @@ function FighterCombat({ onExit }: GameProps) {
         <StatusRow name="YOU" f={m.you} tone="you" note={youArc ? 'TARGET IN ARC' : 'NO TARGET IN ARC'} />
         <StatusRow name="BANDIT" f={m.foe} tone="foe" note={foeArc ? 'HAS YOU IN ARC' : 'NO SHOT ON YOU'} />
       </div>
+      {/* Phone: the decision sits right under the telemetry, ahead of the explanation. */}
+      {phone && side}
       {!m.end && (
       <p className={`tg-note${youArc ? ' gs-tone-amber' : ''}`} data-testid="fc-solution">
         {youArc

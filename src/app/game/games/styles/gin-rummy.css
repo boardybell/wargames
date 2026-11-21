@@ -106,3 +106,30 @@
     gap: 3px;
   }
 }
+/* Phone: the DISCARD panel sits inside the felt above the hand. One header row
+   (title + after-discard count), the two commands, then the note. */
+@media (max-width: 760px) {
+  .gs-felt .gin-discard {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: baseline;
+    gap: 6px 12px;
+    padding: 8px 10px;
+  }
+  .gs-felt .gin-discard > .gs-panel-title {
+    margin: 0 !important;
+  }
+  .gs-felt .gin-discard > .gin-after {
+    margin: 0;
+    font-size: 18px;
+    text-align: right;
+  }
+  .gs-felt .gin-discard > .gs-actions,
+  .gs-felt .gin-discard > .gin-note {
+    grid-column: 1 / -1;
+    margin: 0;
+  }
+  .gs-felt .gin-discard > .gin-note {
+    font-size: 13px;
+  }
+}

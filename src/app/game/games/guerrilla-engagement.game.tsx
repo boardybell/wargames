@@ -7,7 +7,7 @@ import { useState } from 'react'
 import type { GameEntry, GameProps } from './types'
 import { Action, Bar, GameReport, GameResult, GameShell, Panel } from './ui/GameShell'
 import { GridBoard } from './ui/boards/GridBoard'
-import { cue, fmtWLD, newSeed, useEventLog, useGameKeys, useGameRecords, type WLD } from './hooks'
+import { cue, fmtWLD, newSeed, useEventLog, useGameKeys, useGameRecords, usePhone, type WLD } from './hooks'
 import {
   ALERT,
   CELL_SIZE,
@@ -80,6 +80,7 @@ const evKind = (e: GEvent): 'info' | 'good' | 'bad' | 'warn' => {
 function GuerrillaEngagement({ onExit }: GameProps) {
   const rec = useGameRecords('guerrilla-engagement')
   const log = useEventLog()
+  const phone = usePhone()
   const [s, setS] = useState<GState>(() => initState(newSeed()))
   const [session, setSession] = useState(() => `ge-${Date.now()}`)
   const [announce, setAnnounce] = useState('')
@@ -287,7 +288,7 @@ function GuerrillaEngagement({ onExit }: GameProps) {
       inProgress={!s.end && s.turn > 1}
       restartLabel="NEW PATROL"
       onExit={onExit}
-      side={side}
+      side={phone ? undefined : side}
       report={<GameReport events={log.events} />}
       announce={announce}
     >
@@ -338,6 +339,8 @@ function GuerrillaEngagement({ onExit }: GameProps) {
               </button>
             ))}
           </div>
+          {/* Phone: orders follow the trooper picker, ahead of the legend. */}
+          {phone && side}
           <ul className="tg-legend" aria-label="Legend">
             <li>
               <span className="tg-swatch" style={{ background: 'rgba(60,120,80,0.25)' }} /> OBSERVED

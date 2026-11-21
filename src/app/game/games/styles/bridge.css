@@ -154,3 +154,13 @@
     display: none;
   }
 }
+
+/* Phone play: the hand you are not playing from shrinks to small cards. */
+@media (max-width: 760px) {
+  .br-hand.is-compact {
+    padding: 6px 8px;
+  }
+  .br-hand.is-compact .gs-hand-cards {
+    gap: 6px 0;
+  }
+}

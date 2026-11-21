@@ -477,6 +477,33 @@ button.tg-card[aria-pressed='true']:hover:not(:disabled) {
     grid-row: 1;
     min-width: 0;
   }
+  /* Desert: tank and target pickers sit with the orders under the map; keep them short.
+     The round banner repeats the phase line and objective, so drop it here. */
+  .gs-main .dw-turn {
+    display: none;
+  }
+  .dw-cards {
+    gap: 6px;
+  }
+  .dw-cards .tg-card {
+    gap: 2px;
+    padding: 6px 8px;
+    font-size: 14px;
+  }
+  .dw-cards .tg-card[aria-pressed='true'] {
+    padding: 5px 7px;
+  }
+  .dw-cards .tg-card-head {
+    flex-wrap: wrap;
+    gap: 2px 6px;
+    letter-spacing: 0;
+  }
+  .dw-cards .gs-bar {
+    font-size: 12px;
+  }
+  .dw-cards .tg-card-line {
+    font-size: 12px;
+  }
   .fc-row {
     font-size: 14px;
     gap: 2px 10px;

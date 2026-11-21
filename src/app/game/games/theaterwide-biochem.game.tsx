@@ -6,7 +6,7 @@
 import { useMemo, useRef, useState } from 'react'
 import type { GameEntry, GameProps } from './types'
 import { Action, ActionBar, Bar, GameReport, GameResult, GameShell, Panel, type Metric } from './ui/GameShell'
-import { cue, fmtWLD, newSeed, rng, useEventLog, useGameKeys, useGameRecords, type WLD } from './hooks'
+import { cue, fmtWLD, newSeed, rng, useEventLog, useGameKeys, useGameRecords, usePhone, type WLD } from './hooks'
 import {
   AI_DECON_AT,
   CEASEFIRE_MARGIN,
@@ -51,6 +51,7 @@ function TheaterwideBiochem({ onExit }: GameProps) {
   const [inspect, setInspect] = useState(1)
   const [last, setLast] = useState<TurnReport | null>(null)
   const log = useEventLog()
+  const phone = usePhone()
 
   const s = game.state
   const action = { kind, target: kind === 'HOLD' ? null : target }
@@ -409,8 +410,8 @@ function TheaterwideBiochem({ onExit }: GameProps) {
       announce={log.events[log.events.length - 1]?.text}
       side={
         <>
-          {result}
-          {actionPanel}
+          {!phone && result}
+          {!phone && actionPanel}
           {posturePanel}
         </>
       }
@@ -423,6 +424,9 @@ function TheaterwideBiochem({ onExit }: GameProps) {
     >
       {popPanel}
       {chain}
+      {/* Phone: action, target and EXECUTE stay together right under the regions. */}
+      {phone && result}
+      {phone && actionPanel}
       {inspector}
     </GameShell>
   )

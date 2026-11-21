@@ -6,7 +6,7 @@
 import { useMemo, useRef, useState } from 'react'
 import type { GameEntry, GameProps } from './types'
 import { Action, ActionBar, GameReport, GameResult, GameShell, Panel, Segmented, type Metric } from './ui/GameShell'
-import { cue, fmtWLD, newSeed, rng, useEventLog, useGameKeys, useGameRecords, type WLD } from './hooks'
+import { cue, fmtWLD, newSeed, rng, useEventLog, useGameKeys, useGameRecords, usePhone, type WLD } from './hooks'
 import {
   AI_CAPITAL,
   COUNTER_MARGIN,
@@ -93,6 +93,7 @@ function TheaterwideTactical({ onExit }: GameProps) {
   const [selected, setSelected] = useState(() => front(game.state.sectors).contested)
   const [last, setLast] = useState<RoundReport | null>(null)
   const log = useEventLog()
+  const phone = usePhone()
 
   const s = game.state
   const { edge, contested } = front(s.sectors)
@@ -422,6 +423,11 @@ function TheaterwideTactical({ onExit }: GameProps) {
           HOLD
         </Action>
       </ActionBar>
+    </Panel>
+  )
+
+  const executePanel = !s.result && (
+    <Panel title={`EXECUTE ROUND ${s.round}`}>
       <p className="tt-dim tt-orders-sum">
         PLACED: {allocText(orders.alloc, orders.assault)}. {available > 0 ? `${available} UNPLACED, CARRIES OVER.` : 'RESERVE FULLY PLACED.'}
       </p>
@@ -524,11 +530,14 @@ function TheaterwideTactical({ onExit }: GameProps) {
       }
       announce={log.events[log.events.length - 1]?.text}
       side={
-        <>
-          {result}
-          {ordersPanel}
-          {previewPanel}
-        </>
+        phone ? undefined : (
+          <>
+            {result}
+            {ordersPanel}
+            {previewPanel}
+            {executePanel}
+          </>
+        )
       }
       report={
         <>
@@ -538,7 +547,19 @@ function TheaterwideTactical({ onExit }: GameProps) {
       }
     >
       {frontMap}
-      {inspector}
+      {phone ? (
+        // Phone: one top-down decision path. Order type, then allocation, then
+        // the preview the player checks before EXECUTE.
+        <>
+          {result}
+          {ordersPanel}
+          {inspector}
+          {previewPanel}
+          {executePanel}
+        </>
+      ) : (
+        inspector
+      )}
     </GameShell>
   )
 }

@@ -8,7 +8,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { GameEntry, GameProps } from './types'
 import { Action, ActionBar, GameReport, GameResult, GameShell, Panel } from './ui/GameShell'
 import { CardHand, CardTile, TrickTable, groupBySuit, type TrickSeat } from './ui/cards/CardTile'
-import { cue, fmtWLD, newSeed, useEventLog, useGameKeys, useGameRecords, useTimers, type WLD } from './hooks'
+import { cue, fmtWLD, newSeed, useEventLog, useGameKeys, useGameRecords, usePhone, useTimers, type WLD } from './hooks'
 import {
   SEAT_NAME,
   STRAIN_NAME,
@@ -175,15 +175,19 @@ function BridgeGame({ onExit }: GameProps) {
   const preview = scoreContract(level, strain, 6 + level)
   const down1 = scoreContract(level, strain, 5 + level)
 
+  const phone = usePhone()
   const seatHand = (seat: 'N' | 'S') => {
     const cards = ps ? ps.hands[seat] : hands[seat]
     const isActive = active === seat
+    // Phone play: shrink the hand you are not playing from. Dummy stays compact
+    // until it is on lead; South compacts only while North is active.
+    const compact = phone && phase === 'play' && !isActive && (seat === 'N' || active === 'N')
     const label =
       seat === 'N'
         ? `NORTH · DUMMY${phase === 'bid' ? ' · SHOWN FOR PRACTICE' : ''}${isActive ? ' · PLAY FROM NORTH' : ''}`
         : `SOUTH · YOU, DECLARER${isActive ? ' · PLAY FROM SOUTH' : ''}`
     return (
-      <div className={`br-hand${isActive ? ' is-active' : ''}`} data-testid={`bridge-hand-${seat.toLowerCase()}`}>
+      <div className={`br-hand${isActive ? ' is-active' : ''}${compact ? ' is-compact' : ''}`} data-testid={`bridge-hand-${seat.toLowerCase()}`}>
         <CardHand
           label={label}
           total={phase === 'bid' ? `${hcp(cards)} HCP` : undefined}
@@ -199,6 +203,7 @@ function BridgeGame({ onExit }: GameProps) {
                   <CardTile
                     key={c.id}
                     card={c}
+                    size={compact ? 'sm' : undefined}
                     eligible={ok}
                     disabled={!ok}
                     onClick={() => humanPlay(seat, c)}
@@ -434,7 +439,7 @@ function BridgeGame({ onExit }: GameProps) {
       side={
         <>
           {result}
-          {phase === 'bid' && contractPicker}
+          {phase === 'bid' && !phone && contractPicker}
           {phase !== 'bid' && contractPanel}
           {lastPanel}
         </>
@@ -442,6 +447,7 @@ function BridgeGame({ onExit }: GameProps) {
       report={<GameReport events={log.events} />}
       announce={log.events[log.events.length - 1]?.text}
     >
+      {phase === 'bid' && phone && contractPicker}
       <div className={`br-compass${phase === 'bid' ? ' is-bid' : ''}`}>
         {seatHand('N')}
         <TrickTable

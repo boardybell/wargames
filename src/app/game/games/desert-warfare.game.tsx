@@ -7,7 +7,7 @@ import { useState } from 'react'
 import type { GameEntry, GameProps } from './types'
 import { Action, Bar, GameReport, GameResult, GameShell, Panel, Segmented } from './ui/GameShell'
 import { GridBoard } from './ui/boards/GridBoard'
-import { cue, fmtWLD, newSeed, useEventLog, useGameKeys, useGameRecords, type WLD } from './hooks'
+import { cue, fmtWLD, newSeed, useEventLog, useGameKeys, useGameRecords, usePhone, type WLD } from './hooks'
 import {
   DELTA,
   FUEL,
@@ -82,6 +82,7 @@ function Pips({ hp }: { hp: number }) {
 function DesertWarfare({ onExit }: GameProps) {
   const rec = useGameRecords('desert-warfare')
   const log = useEventLog()
+  const phone = usePhone()
   const [s, setS] = useState<DState>(() => initState(LAYOUTS[0]!.id, newSeed()))
   const [session, setSession] = useState(() => `dw-${Date.now()}`)
   const [announce, setAnnounce] = useState('')
@@ -283,7 +284,7 @@ function DesertWarfare({ onExit }: GameProps) {
   const side = (
     <>
       {!s.end && <div className="dw-turn">ROUND {s.round}/{MAX_ROUNDS} · BOTH TANKS ACT, THEN WOPR</div>}
-      <div className="tg-cards" role="group" aria-label="Your tanks">
+      <div className="tg-cards dw-cards" role="group" aria-label="Your tanks">
         {blues.map((t) => (
           <button
             key={t.id}
@@ -306,7 +307,7 @@ function DesertWarfare({ onExit }: GameProps) {
         ))}
       </div>
       {decision}
-      <div className="tg-cards" role="group" aria-label="Targets">
+      <div className="tg-cards dw-cards" role="group" aria-label="Targets">
         {enemies.map((e) => {
           const r = me ? cheb(me, e) : null
           const why = me && e.hp > 0 ? fireBlock(me, e, dunes) : null
@@ -380,7 +381,7 @@ function DesertWarfare({ onExit }: GameProps) {
       inProgress={!s.end && (s.round > 1 || s.tanks.some((t) => t.acted))}
       restartLabel="RESTART MAP"
       onExit={onExit}
-      side={side}
+      side={phone ? undefined : side}
       report={<GameReport events={log.events} />}
       announce={announce}
     >
@@ -409,6 +410,8 @@ function DesertWarfare({ onExit }: GameProps) {
         }}
         overlay={overlay}
       />
+      {/* Phone: tank, orders and target sit directly under the map; legend after. */}
+      {phone && side}
       <ul className="tg-legend" aria-label="Legend">
         <li>
           <span className="tg-swatch" style={{ background: 'rgba(200,150,70,0.6)' }} /> DUNE: BLOCKS MOVES AND SIGHT
