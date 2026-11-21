@@ -7,6 +7,7 @@
 // VITE_BASE change documented in the README). CI builds with VITE_BASE set to
 // /<repo>/ so this assertion matches the deployed artifact.
 import { test, expect } from '@playwright/test'
+import { PREVIEW_PORT } from '../scripts/preview-port.mjs'
 import { clearSaves } from './helpers/inject'
 import { activate, gotoApp, startMission } from './helpers/play'
 
@@ -23,7 +24,7 @@ test('every same-origin asset request stays under /wargames/', async ({
   page.on('request', (request) => {
     const url = new URL(request.url())
     // Only same-origin requests are our assets; ignore cross-origin.
-    if (url.origin !== `http://localhost:4173`) return
+    if (url.origin !== `http://localhost:${PREVIEW_PORT}`) return
     if (!ASSET_RE.test(url.pathname)) return
     if (!url.pathname.startsWith('/wargames/')) {
       offenders.push(url.pathname)

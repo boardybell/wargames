@@ -2,7 +2,7 @@
 // under the /wargames/ base (the real deployed artifact, not a test-mode build)
 // and runs every spec against it at a desktop and a mobile viewport. The preview
 // port lives in exactly one place: scripts/preview-port.mjs, owned by section 01
-// and imported here so nothing hardcodes 4173 twice.
+// and imported here so nothing hardcodes the port twice.
 //
 // webkit is listed but excluded from the default run (gate it behind PW_WEBKIT=1);
 // it is the documented local manual pass. No em-dashes anywhere.
@@ -60,8 +60,10 @@ export default defineConfig({
   webServer: {
     // Build the production bundle under the subpath, then serve it with the
     // single shared port. reuseExistingServer locally so a preview already on
-    // 4173 is reused rather than rebuilt.
-    command: `VITE_BASE=/wargames/ npm run build && npm run preview -- --port ${PREVIEW_PORT} --strictPort`,
+    // the preview port is reused rather than rebuilt.
+    // VITE_BASE must reach the preview server too: the default base is / (the
+    // site is served at the root of its custom domain).
+    command: `VITE_BASE=/wargames/ npm run build && VITE_BASE=/wargames/ npm run preview -- --port ${PREVIEW_PORT} --strictPort`,
     url: BASE_URL,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,

@@ -1,131 +1,18 @@
 // SHALL WE PLAY A GAME? A self-contained, playable WarGames tribute built on
 // the terminal look and the WOPR hero art. Hero -> push-in -> WOPR boot -> the
-// games list -> GLOBAL THERMONUCLEAR WAR -> pick a side -> launch -> the war
-// board escalates to DEFCON 1 -> WOPR runs every scenario and learns futility
-// -> THE ONLY WINNING MOVE IS NOT TO PLAY -> a nice game of chess.
+// games list -> GLOBAL THERMONUCLEAR WAR (chess offer, pick a side) -> the
+// open-ended Cold War command game (gtw/) -> when the player finally loses,
+// WOPR runs every scenario and learns futility -> THE ONLY WINNING MOVE IS NOT
+// TO PLAY -> a nice game of chess.
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { bootApp } from '../boot'
 import { gameFor } from './games/registry'
 import './game.css'
-import { setMachineRoomLevel, startMachineRoom } from './machineRoom'
-import type { RoomLevel } from './machineRoom'
-
-// ---------- sound (created and resumed on the activation gesture) ----------
-let actx: AudioContext | null = null
-let master: GainNode | null = null
-let soundOn = false
-
-function ctx(): AudioContext | null {
-  if (actx) return actx
-  try {
-    const C =
-      window.AudioContext ||
-      (window as unknown as { webkitAudioContext?: typeof AudioContext })
-        .webkitAudioContext
-    if (C) {
-      actx = new C()
-      master = actx.createGain()
-      master.gain.value = 0.6
-      master.connect(actx.destination)
-    }
-  } catch {
-    actx = null
-  }
-  return actx
-}
-
-// The visitor's sound choice from the hero's SOUND switch, remembered across
-// visits. null means they never chose, which counts as on.
-const SOUND_KEY = 'wg.sound'
-function soundPref(): 'on' | 'off' | null {
-  try {
-    const v = window.localStorage.getItem(SOUND_KEY)
-    return v === 'on' || v === 'off' ? v : null
-  } catch {
-    return null
-  }
-}
-function saveSoundPref(v: 'on' | 'off'): void {
-  try {
-    window.localStorage.setItem(SOUND_KEY, v)
-  } catch {
-    /* private mode: the choice just isn't remembered */
-  }
-}
-
-// Turn sound on and bring up the machine room. Must run inside a user gesture
-// unless the browser already allows audio (autoplay permitted).
-function enableSound(level: RoomLevel): void {
-  soundOn = true
-  const c = ctx()
-  if (!c || !master) return
-  try {
-    void c.resume()
-  } catch {
-    /* ignore */
-  }
-  startMachineRoom(c, master, level)
-}
-
-function muteSound(): void {
-  soundOn = false
-  try {
-    void actx?.suspend()
-  } catch {
-    /* ignore */
-  }
-}
-
-// Start audio inside the activation gesture: the machine room keeps running
-// underneath the terminal as a quieter bed so the machine is always audibly
-// alive. An explicit SOUND OFF on the hero is respected.
-function startAudio(): void {
-  if (soundPref() === 'off') return
-  enableSound('terminal')
-  setMachineRoomLevel('terminal')
-}
-
-function beep(
-  freq = 440,
-  dur = 0.07,
-  type: OscillatorType = 'square',
-  gain = 0.14,
-): void {
-  if (!soundOn) return
-  const c = ctx()
-  if (!c || !master) return
-  try {
-    const o = c.createOscillator()
-    const g = c.createGain()
-    o.type = type
-    o.frequency.value = freq
-    o.connect(g)
-    g.connect(master)
-    const t = c.currentTime
-    g.gain.setValueAtTime(0.0001, t)
-    g.gain.exponentialRampToValueAtTime(gain, t + 0.01)
-    g.gain.exponentialRampToValueAtTime(0.0001, t + dur)
-    o.start(t)
-    o.stop(t + dur + 0.03)
-  } catch {
-    // never let a dead speaker break the game
-  }
-}
-// A rising two-tone confirm.
-function chime(base = 520): void {
-  beep(base, 0.09, 'square', 0.12)
-  setTimeout(() => beep(base * 1.5, 0.12, 'square', 0.12), 90)
-}
-const thud = (): void => {
-  beep(70, 0.5, 'sine', 0.6)
-  beep(45, 0.6, 'triangle', 0.45)
-}
-function siren(): void {
-  for (let i = 0; i < 8; i++) {
-    setTimeout(() => beep(i % 2 ? 760 : 560, 0.2, 'sawtooth', 0.14), i * 190)
-  }
-}
+import { beep, chime, ctx, enableSound, muteSound, saveSoundPref, soundPref, startAudio, thud } from './sound'
+import { setMachineRoomLevel } from './machineRoom'
+import { GlobalThermonuclearWar, loadSavedGame } from './gtw/GlobalThermonuclearWar'
+import { dateLabel, sideName } from './gtw/engine'
 
 const REDUCED =
   typeof window !== 'undefined' &&
@@ -232,26 +119,6 @@ const GAMES: readonly string[] = [
   'GLOBAL THERMONUCLEAR WAR',
 ]
 
-interface City {
-  readonly name: string
-  readonly x: number
-  readonly y: number
-  readonly side: 'US' | 'SU'
-}
-const CITIES: readonly City[] = [
-  { name: 'SEATTLE', x: 10, y: 22, side: 'US' },
-  { name: 'LOS ANGELES', x: 8, y: 55, side: 'US' },
-  { name: 'DENVER', x: 20, y: 42, side: 'US' },
-  { name: 'WASHINGTON DC', x: 38, y: 38, side: 'US' },
-  { name: 'NEW YORK', x: 40, y: 30, side: 'US' },
-  { name: 'CHICAGO', x: 30, y: 30, side: 'US' },
-  { name: 'MOSCOW', x: 66, y: 24, side: 'SU' },
-  { name: 'LENINGRAD', x: 62, y: 18, side: 'SU' },
-  { name: 'KIEV', x: 64, y: 34, side: 'SU' },
-  { name: 'MINSK', x: 60, y: 28, side: 'SU' },
-  { name: 'VLADIVOSTOK', x: 92, y: 40, side: 'SU' },
-  { name: 'NOVOSIBIRSK', x: 80, y: 30, side: 'SU' },
-]
 
 // A live LED matrix for the WOPR lamp band: a grid of small red/amber/green
 // lamps blinking on staggered cycles, so the computer looks like it is
@@ -426,7 +293,7 @@ function initialStage(): Stage {
 export function WarGamesGame() {
   const [stage, setStage] = useState<Stage>(initialStage)
   const [pushing, setPushing] = useState(false)
-  const [side, setSide] = useState<'US' | 'SU'>('US')
+  const [gtwStart, setGtwStart] = useState<'US' | 'SU' | 'resume'>('US')
   const [game, setGame] = useState<string | null>(null)
 
   const pickGame = (g: string): void => {
@@ -475,12 +342,22 @@ export function WarGamesGame() {
         <GameHost id={game} onExit={() => setStage('menu')} />
       )}
 
-      {stage !== 'hero' && stage !== 'campaign' && stage !== 'game' && (
+      {stage === 'war' && (
+        <GlobalThermonuclearWar
+          start={gtwStart}
+          onDone={() => setStage('learn')}
+          onExit={() => setStage('menu')}
+        />
+      )}
+
+      {stage !== 'hero' && stage !== 'campaign' && stage !== 'game' && stage !== 'war' && (
         <Screen
           stage={stage}
-          side={side}
           onStage={setStage}
-          onSide={setSide}
+          onGtw={(g) => {
+            setGtwStart(g)
+            setStage('war')
+          }}
           onPickGame={pickGame}
         />
       )}
@@ -490,15 +367,13 @@ export function WarGamesGame() {
 
 function Screen({
   stage,
-  side,
   onStage,
-  onSide,
+  onGtw,
   onPickGame,
 }: {
   stage: Stage
-  side: 'US' | 'SU'
   onStage: (s: Stage) => void
-  onSide: (s: 'US' | 'SU') => void
+  onGtw: (start: 'US' | 'SU' | 'resume') => void
   onPickGame: (g: string) => void
 }) {
   useEffect(() => {
@@ -522,20 +397,13 @@ function Screen({
         {stage === 'menu' && (
           <Menu
             onPick={(g) =>
-              g === 'GLOBAL THERMONUCLEAR WAR' ? onStage('campaign') : onPickGame(g)
+              g === 'GLOBAL THERMONUCLEAR WAR' ? onStage('chess') : onPickGame(g)
             }
           />
         )}
-        {stage === 'chess' && <Chess onLater={() => onStage('side')} onChess={() => onStage('end')} />}
-        {stage === 'side' && (
-          <SidePick
-            onPick={(s) => {
-              onSide(s)
-              onStage('war')
-            }}
-          />
-        )}
-        {stage === 'war' && <War side={side} onDone={() => onStage('learn')} />}
+        {stage === 'chess' && <Chess onLater={() => onStage('side')} onChess={() => onPickGame('CHESS')} />}
+        {stage === 'side' && <SidePick onPick={onGtw} />}
+
         {stage === 'learn' && <Learn onDone={() => onStage('end')} />}
         {stage === 'end' && <Ending onAgain={() => onStage('greeting')} />}
       </div>
@@ -619,12 +487,14 @@ function Chess({ onLater, onChess }: { onLater: () => void; onChess: () => void 
   )
 }
 
-function SidePick({ onPick }: { onPick: (s: 'US' | 'SU') => void }) {
+function SidePick({ onPick }: { onPick: (s: 'US' | 'SU' | 'resume') => void }) {
   const [done, setDone] = useState(false)
+  const saved = useMemo(() => loadSavedGame(), [])
   return (
     <>
       <Typer
         script={[
+          seg('FINE.\n\n'),
           seg('WHICH SIDE DO YOU WANT?\n\n'),
           seg('  1.  UNITED STATES\n', 'wg-dim'),
           seg('  2.  SOVIET UNION\n', 'wg-dim'),
@@ -634,211 +504,20 @@ function SidePick({ onPick }: { onPick: (s: 'US' | 'SU') => void }) {
       />
       {done && (
         <div className="wg-opts">
-          <button className="wg-opt" onClick={() => onPick('US')} autoFocus>
-            &gt; UNITED STATES
+          {saved && (
+            <button className="wg-opt wg-amber" onClick={() => onPick('resume')} autoFocus>
+              &gt; RESUME COMMAND: {sideName(saved.player)}, {dateLabel(saved)}
+            </button>
+          )}
+          <button className="wg-opt" onClick={() => onPick('US')} autoFocus={!saved}>
+            &gt; UNITED STATES{saved ? ' (NEW GAME)' : ''}
           </button>
           <button className="wg-opt" onClick={() => onPick('SU')}>
-            &gt; SOVIET UNION
+            &gt; SOVIET UNION{saved ? ' (NEW GAME)' : ''}
           </button>
         </div>
       )}
     </>
-  )
-}
-
-interface Strike {
-  readonly from: City
-  readonly to: City
-  readonly at: number
-}
-
-// Stylized continent outlines so the board reads as a map, not floating dots.
-// Coordinates are in the same 0-100 x / 0-70 y space as the city positions.
-function WorldMap() {
-  return (
-    <svg
-      className="wg-map"
-      viewBox="0 0 100 70"
-      preserveAspectRatio="none"
-      aria-hidden="true"
-    >
-      <path d="M4 30 L10 18 L18 13 L26 15 L33 13 L41 18 L44 27 L40 33 L43 40 L38 50 L30 58 L22 60 L15 54 L13 44 L6 40 Z" />
-      <path d="M50 24 L57 15 L68 11 L80 12 L90 16 L97 22 L95 31 L88 36 L90 42 L82 46 L72 45 L63 47 L56 40 L52 32 Z" />
-    </svg>
-  )
-}
-
-function War({ side, onDone }: { side: 'US' | 'SU'; onDone: () => void }) {
-  const [phase, setPhase] = useState<'aim' | 'war'>('aim')
-  const [defcon, setDefcon] = useState(5)
-  const [hits, setHits] = useState<Set<string>>(new Set())
-  const [targets, setTargets] = useState<Set<string>>(new Set())
-  const [arcs, setArcs] = useState<Strike[]>([])
-  const [log, setLog] = useState<{ t: string; crit?: boolean }[]>([])
-  const boardRef = useRef<HTMLDivElement>(null)
-  const timers = useRef<ReturnType<typeof setTimeout>[]>([])
-
-  const enemySide = side === 'US' ? 'SU' : 'US'
-  const enemyLabel = side === 'US' ? 'SOVIET' : 'U.S.'
-  const ownCities = CITIES.filter((c) => c.side === side)
-  const enemyCities = CITIES.filter((c) => c.side === enemySide)
-
-  useEffect(() => () => timers.current.forEach(clearTimeout), [])
-
-  const toggleTarget = (name: string): void => {
-    if (phase !== 'aim') return
-    beep(760, 0.04)
-    setTargets((prev) => {
-      const next = new Set(prev)
-      if (next.has(name)) next.delete(name)
-      else next.add(name)
-      return next
-    })
-  }
-
-  const launch = (): void => {
-    if (phase !== 'aim' || targets.size === 0) return
-    setPhase('war')
-    siren()
-    const t = (ms: number, fn: () => void): void => {
-      timers.current.push(setTimeout(fn, ms))
-    }
-    const addLog = (line: string, crit = false): void =>
-      setLog((l) => [...l.slice(-7), { t: line, crit }])
-    const shake = (): void => {
-      const el = boardRef.current
-      if (!el) return
-      el.classList.add('shake')
-      setTimeout(() => el.classList.remove('shake'), 500)
-    }
-    const targeted = enemyCities.filter((c) => targets.has(c.name))
-
-    addLog('LAUNCH ORDER CONFIRMED. BIRDS AWAY.', true)
-    // Outbound: your warheads reach the cities you targeted.
-    targeted.forEach((city, i) => {
-      const from = ownCities[i % ownCities.length]!
-      const at = 300 + i * 450
-      t(at, () => {
-        setArcs((a) => [...a, { from, to: city, at }])
-        beep(820 - i * 30, 0.05, 'sawtooth', 0.04)
-      })
-      t(at + 560, () => {
-        setHits((h) => new Set(h).add(city.name))
-        thud()
-        shake()
-        addLog(`DETONATION: ${city.name}.`, true)
-      })
-    })
-
-    const retalStart = 900 + targeted.length * 450
-    t(retalStart - 400, () => {
-      setDefcon(3)
-      beep(260, 0.3, 'square', 0.13)
-      addLog(`${enemyLabel} EARLY WARNING: RETALIATORY LAUNCH DETECTED.`, true)
-    })
-    // Inbound: the enemy answers against your hubs.
-    ownCities.forEach((city, i) => {
-      const from = enemyCities[i % enemyCities.length]!
-      const at = retalStart + i * 520
-      t(at, () => {
-        setArcs((a) => [...a, { from, to: city, at }])
-        beep(700 - i * 30, 0.05, 'sawtooth', 0.035)
-      })
-      t(at + 560, () => {
-        setHits((h) => new Set(h).add(city.name))
-        thud()
-        shake()
-        addLog(`DETONATION: ${city.name}.`, true)
-      })
-    })
-
-    const end = retalStart + ownCities.length * 520 + 900
-    t(end, () => {
-      setDefcon(1)
-      siren()
-      addLog('DEFCON 1. GENERAL NUCLEAR WAR IN PROGRESS.', true)
-    })
-    t(end + 1100, () =>
-      addLog('WOPR HAS ASSUMED LAUNCH CONTROL. SIMULATING ALL REMAINING SCENARIOS...'),
-    )
-    t(end + 2100, () => onDone())
-  }
-
-  return (
-    <div className="wg-war">
-      <div className={defcon <= 2 ? 'wg-defcon crit' : 'wg-defcon'}>
-        <span>DEFCON</span>
-        <b>{defcon}</b>
-        <span className="wg-dim">GLOBAL THERMONUCLEAR WAR / SIMULATION</span>
-      </div>
-      <div className="wg-board" ref={boardRef}>
-        <WorldMap />
-        {arcs.map((s, i) => {
-          const dx = s.to.x - s.from.x
-          const dy = s.to.y - s.from.y
-          const len = Math.hypot(dx, dy)
-          const ang = (Math.atan2(dy, dx) * 180) / Math.PI
-          return (
-            <div
-              key={i}
-              className="wg-arc"
-              style={{
-                left: `${s.from.x}%`,
-                top: `${s.from.y}%`,
-                width: `${len}%`,
-                transform: `rotate(${ang}deg)`,
-              }}
-            />
-          )
-        })}
-        {CITIES.map((c) => {
-          const isEnemy = c.side === enemySide
-          const cls = [
-            'wg-city',
-            hits.has(c.name) ? 'hit' : '',
-            phase === 'aim' && isEnemy ? 'enemy' : '',
-            targets.has(c.name) ? 'targeted' : '',
-          ]
-            .filter(Boolean)
-            .join(' ')
-          return (
-            <div
-              key={c.name}
-              className={cls}
-              style={{ left: `${c.x}%`, top: `${c.y}%` }}
-              onClick={isEnemy ? () => toggleTarget(c.name) : undefined}
-            >
-              <span className="dot" />
-              {c.name}
-            </div>
-          )
-        })}
-      </div>
-      {phase === 'aim' ? (
-        <div className="wg-aim">
-          <span className="wg-aim-prompt">
-            SELECT {enemyLabel} TARGETS: CLICK CITIES ON THE MAP
-          </span>
-          <span className="wg-dim">{targets.size} TARGETED</span>
-          <button
-            type="button"
-            className="wg-launch"
-            onClick={launch}
-            disabled={targets.size === 0}
-          >
-            LAUNCH
-          </button>
-        </div>
-      ) : (
-        <div className="wg-log">
-          {log.map((l, i) => (
-            <span key={i} className={l.crit ? 'crit' : undefined}>
-              {l.t}
-            </span>
-          ))}
-        </div>
-      )}
-    </div>
   )
 }
 

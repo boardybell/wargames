@@ -4,8 +4,10 @@
 // shipped path a player takes:
 //
 //   WarGamesGame hero -> activate (click) -> WOPR boot -> GREETINGS / SHALL WE
-//   PLAY A GAME -> LIST GAMES -> GLOBAL THERMONUCLEAR WAR -> the deep engine
-//   campaign (three missions) -> GLOBAL FAILSAFE finale -> recovery ending.
+//   PLAY A GAME -> LIST GAMES -> GLOBAL THERMONUCLEAR WAR -> chess offer ->
+//   pick a side -> the open-ended command game (a limited exchange, then the
+//   game continues, saves and resumes). Then the deep engine campaign, entered
+//   at ?stage=campaign -> three missions -> GLOBAL FAILSAFE -> recovery ending.
 //
 // This spec closes that gap in one continuous flow. It reuses the proven engine
 // walkthrough helpers (playMission / unlockFinale) once the campaign mounts,
@@ -51,7 +53,7 @@ test.describe('top-to-bottom: WarGames front door through to the recovery ending
     await clearSaves(page)
   })
 
-  test('hero -> boot -> LIST GAMES -> GLOBAL THERMONUCLEAR WAR -> three missions -> finale -> recovery ending', async ({
+  test('hero -> boot -> LIST GAMES -> GLOBAL THERMONUCLEAR WAR (play, save, resume) -> campaign -> finale -> recovery ending', async ({
     page,
   }, testInfo) => {
     // This single test drives the whole game, including three real four-minute
@@ -106,8 +108,56 @@ test.describe('top-to-bottom: WarGames front door through to the recovery ending
       .toBeGreaterThan(0)
     await expect(gtw).toBeVisible()
 
-    // ---- 3. Pick GLOBAL THERMONUCLEAR WAR: the engine campaign must mount. ----
+    // ---- 3. Pick GLOBAL THERMONUCLEAR WAR: the film's chess offer, a side,
+    // then the open-ended command game on the big board. ----
     await gtw.click()
+    const later = page.getByRole('button', { name: /LATER\. LET US PLAY GLOBAL THERMONUCLEAR WAR/ })
+    await expect
+      .poll(async () => (await flushTypers(page, 1_000), later.count()), { timeout: 20_000 })
+      .toBeGreaterThan(0)
+    await later.click()
+    const us = page.getByRole('button', { name: /UNITED STATES/ })
+    await expect
+      .poll(async () => (await flushTypers(page, 1_000), us.count()), { timeout: 20_000 })
+      .toBeGreaterThan(0)
+    await us.click()
+    await expect(page.getByTestId('gtw')).toBeVisible()
+    await expect(page.getByTestId('gtw')).toContainText('1983 Q3')
+
+    // A limited strike: one ICBM at one enemy silo, confirmed as a first strike.
+    await page.locator('[data-site="us-min"] .hit').click()
+    await page.locator('[data-site="su-uzh"] .hit').click()
+    await page.getByRole('button', { name: 'CONFIRM' }).click()
+    await expect(page.getByTestId('gtw')).toContainText('CRISIS')
+    // Ride the crisis clock until the exchange stops and command returns.
+    await expect
+      .poll(async () => (await page.clock.runFor(2_000), page.getByTestId('gtw-end-quarter').count()), {
+        message: 'the limited exchange never resolved back to strategic command',
+        timeout: 60_000,
+      })
+      .toBeGreaterThan(0)
+    // The game goes on: no game-over, the calendar advanced.
+    await expect(page.getByTestId('gtw-over')).toHaveCount(0)
+    await expect(page.getByTestId('gtw')).toContainText('1983 Q4')
+
+    // Saved: leave and come back, and the side picker offers to resume.
+    await page.getByRole('button', { name: /SAVE & EXIT/ }).click()
+    await expect(page.getByTestId('games')).toBeVisible({ timeout: 10_000 })
+    await page.getByRole('button', { name: 'GLOBAL THERMONUCLEAR WAR' }).click()
+    await expect
+      .poll(async () => (await flushTypers(page, 1_000), later.count()), { timeout: 20_000 })
+      .toBeGreaterThan(0)
+    await later.click()
+    const resume = page.getByRole('button', { name: /RESUME COMMAND: UNITED STATES, 1983 Q4/ })
+    await expect
+      .poll(async () => (await flushTypers(page, 1_000), resume.count()), { timeout: 20_000 })
+      .toBeGreaterThan(0)
+    await resume.click()
+    await expect(page.getByTestId('gtw')).toContainText('1983 Q4')
+
+    // ---- The deep engine campaign is its own entry point now (?stage=campaign,
+    // or ?engine). Enter it and play it through to the recovery ending. ----
+    await page.goto('./?stage=campaign')
     await expect(page.getByTestId('campaign')).toBeVisible()
 
     // The campaign is bootApp({skipHero:true}): it drops straight into the engine

@@ -1,5 +1,5 @@
-// Every LIST GAMES entry (except GLOBAL THERMONUCLEAR WAR, which launches the
-// campaign and is covered elsewhere) must be reachable from the front-end menu,
+// Every LIST GAMES entry (except GLOBAL THERMONUCLEAR WAR, which has its own
+// flow and is covered in full-playthrough) must be reachable from the front-end menu,
 // render, respond to real input (state changes, not frozen), raise no runtime
 // error, and exit back to the menu. This is the playability gate for the 14
 // tribute games.
