@@ -2,10 +2,10 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { fileURLToPath } from 'node:url'
 
-// Project site deploys under /wargames/; subpath parity is the default
-// posture so a wrong base can never silently ship. Split 08's CI overrides
-// VITE_BASE for the real target.
-const base = process.env.VITE_BASE ?? '/wargames/'
+// Served at the root of greetingsprofessorfalken.net (custom domain). e2e
+// still builds with VITE_BASE=/wargames/ to prove subpath parity; set
+// VITE_BASE to deploy under a subpath again.
+const base = process.env.VITE_BASE ?? '/'
 
 export default defineConfig({
   base,
