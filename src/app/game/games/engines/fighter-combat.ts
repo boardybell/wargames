@@ -190,44 +190,66 @@ export function chasePolicy(foe: Fighter, you: Fighter): Act {
   return toLeft <= toRight ? 'LEFT' : 'RIGHT'
 }
 
+/** Static score of a position from `f`'s point of view (VETERAN leaf evaluation). */
+function evalPosition(f: Fighter, y: Fighter): number {
+  const r = range(f, y)
+  const closure = r > GUN_RANGE ? -0.25 * (r - GUN_RANGE) : 0
+  return (
+    3 * (f.hp - y.hp) +
+    0.9 * (inArc(f, y) ? 1 : 0) -
+    1.1 * (inArc(y, f) ? 1 : 0) +
+    closure +
+    0.08 * f.energy -
+    (f.energy < 2 ? 0.6 : 0)
+  )
+}
+
+const KILL = 50
+
 /**
- * VETERAN: evaluates every eligible action against every eligible reply.
- * Each candidate position is scored for gun damage dealt, exposure to the
- * player's guns this turn and next, follow-up firing position and energy
- * reserve, blending the average reply with the worst one. Deterministic (ties broken by action order).
+ * Value of the best action for `f` against every reply of `y`, looking
+ * `depth` turns ahead. Each action scores a cautious blend of the average
+ * reply (40%) and the worst reply (60%): the player is not random.
  */
-export function veteranPolicy(foe: Fighter, you: Fighter): Act {
-  const mine = eligibleActs(foe)
-  const theirs = eligibleActs(you)
+function searchBest(f: Fighter, y: Fighter, depth: number): { act: Act; score: number } {
+  const mine = eligibleActs(f)
+  const theirs = eligibleActs(y)
   let best: Act = mine[0] ?? 'CLIMB'
   let bestScore = -Infinity
   for (const a of mine) {
-    const f2 = maneuver(foe, a)
     let total = 0
     let worst = Infinity
     for (const b of theirs) {
-      const y2 = maneuver(you, b)
-      const dealt = a === 'GUNS' ? gunDamage(f2, y2) : 0
-      const taken = b === 'GUNS' ? gunDamage(y2, f2) : 0
-      // Next turn: can either side bring guns to bear without moving?
-      const nextOffense = inArc(f2, y2) ? 1 : 0
-      const nextExposure = inArc(y2, f2) ? 1 : 0
-      const r = range(f2, y2)
-      const closure = r > GUN_RANGE ? -0.25 * (r - GUN_RANGE) : 0
-      const v = 3 * dealt - 3 * taken + 0.9 * nextOffense - 1.1 * nextExposure + closure
+      // resolveTurn's first fighter is "you": pass the opponent there.
+      const r = resolveTurn(y, f, b, a, 1)
+      let v: number
+      if (r.you.hp <= 0 && r.foe.hp <= 0) v = 0
+      else if (r.foe.hp <= 0) v = -KILL
+      else if (r.you.hp <= 0) v = KILL
+      else if (depth > 1) v = 0.9 * searchBest(r.foe, r.you, depth - 1).score + 0.1 * evalPosition(r.foe, r.you)
+      else v = evalPosition(r.foe, r.you)
       total += v
       worst = Math.min(worst, v)
     }
-    const avg = total / Math.max(1, theirs.length)
-    const energyTerm = 0.08 * f2.energy - (f2.energy < 2 ? 0.6 : 0)
-    // Cautious blend: the player is not random, so weigh the worst reply.
-    const score = 0.4 * avg + 0.6 * worst + energyTerm
+    const score = 0.4 * (total / Math.max(1, theirs.length)) + 0.6 * worst
     if (score > bestScore + 1e-9) {
       bestScore = score
       best = a
     }
   }
-  return best
+  return { act: best, score: bestScore }
+}
+
+/**
+ * VETERAN: a two-turn lookahead. Every eligible action is tried against every
+ * eligible reply, then its own best follow-up against every second reply.
+ * Positions are scored on hull points, guns on target, exposure to your guns,
+ * closure and energy reserve. Same eligibility and energy rules as you; no
+ * hidden information (it sees only the scope). Deterministic: ties go to
+ * action order.
+ */
+export function veteranPolicy(foe: Fighter, you: Fighter): Act {
+  return searchBest(foe, you, 2).act
 }
 
 export function foePolicy(d: Difficulty, foe: Fighter, you: Fighter): Act {

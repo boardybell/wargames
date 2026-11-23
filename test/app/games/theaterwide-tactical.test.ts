@@ -3,6 +3,10 @@ import {
   aiAllocate,
   asRoll,
   breakthroughChance,
+  counterPlan,
+  front,
+  held,
+  preview,
   emptyOrders,
   forces,
   initialState,
@@ -121,12 +125,17 @@ function randomOrders(s: State, rand: () => number): Orders {
 describe('theaterwide tactical: economy and victory', () => {
   it('reinforces each pool exactly once per round; the enemy commits only what it shows', () => {
     const s = initialState('normal')
-    expect(s.aiPool).toBe(10)
-    expect(aiAllocate(s).reduce((a, b) => a + b, 0)).toBe(10)
+    expect(s.aiPool).toBe(12)
+    const shown = aiAllocate(s)
     const { state, report } = playRound(s, { alloc: [0, 3, 0, 0, 0], assault: 0, advance: false }, rolls(0))
+    expect(report.aiAlloc).toEqual(shown)
     expect(report.reinforced).toEqual({ us: 4, ai: 4 })
     expect(state.usPool).toBe(10 - 3 + 4)
-    expect(state.aiPool).toBe(4)
+    const sum = shown.reduce((a, b) => a + b, 0)
+    expect(state.aiPool).toBe(12 - sum - (report.counter?.committed.assault ?? 0) + 4)
+    expect(reconciles(report.ai)).toBe(true)
+    const easy = playRound(initialState('easy'), { alloc: [0, 0, 0, 0, 0], assault: 0, advance: false }, rolls(0))
+    expect(easy.report.reinforced).toEqual({ us: 4, ai: 3 })
   })
 
   it('capital captured is a typed win', () => {
@@ -169,12 +178,13 @@ describe('theaterwide tactical: orders and doctrine', () => {
 
   it('difficulty changes the visible enemy allocation policy', () => {
     const a = (d: 'easy' | 'normal' | 'hard') => aiAllocate(initialState(d))
-    expect(a('easy')).toEqual([0, 0, 7, 3, 0])
-    expect(a('normal')).toEqual([0, 0, 4, 6, 0])
-    expect(a('hard')).toEqual([0, 0, 10, 0, 0])
+    // Whatever is not sent forward stays in the enemy reserve for counterattacks.
+    expect(a('easy')).toEqual([0, 0, 7, 0, 0]) // 70% of 10
+    expect(a('normal')).toEqual([0, 0, 5, 0, 0]) // 40% of 12
+    expect(a('hard')).toEqual([0, 0, 13, 0, 0]) // covers 3 + 10 + 3 - 1, capped at its 13
     // HARD covers your visible maximum (edge 2 + reserve 0 + roll 3 - line bonus 1 - 2 held = 2) and banks the rest.
     const s = { ...make([S('US', 0), S('US', 2), S('AI', 2), S('AI', 0), S('AI', 0)], { usPool: 0, aiPool: 10 }), difficulty: 'hard' as const }
-    expect(aiAllocate(s)).toEqual([0, 0, 2, 8, 0])
+    expect(aiAllocate(s)).toEqual([0, 0, 2, 0, 0])
   })
 
   it('difficulty changes the counterattack margin', () => {
@@ -195,7 +205,63 @@ describe('theaterwide tactical: orders and doctrine', () => {
 
   it('forces counts map plus pool', () => {
     expect(forces(initialState(), 'US')).toBe(13)
-    expect(forces(initialState(), 'AI')).toBe(13)
+    expect(forces(initialState('easy'), 'AI')).toBe(13)
+    expect(forces(initialState('normal'), 'AI')).toBe(15)
+    expect(forces(initialState('hard'), 'AI')).toBe(16)
+  })
+
+  it('the enemy reserve joins the counterattack and is deducted from its pool', () => {
+    // Stack 2 facing you, reserve 6: strike 1 + 6 = 7 vs your edge 4 + line 1 = 5.
+    const s = { ...make([S('US', 0), S('US', 4), S('AI', 2), S('AI', 0), S('AI', 0)], { usPool: 0, aiPool: 6 }), difficulty: 'easy' as const }
+    expect(counterPlan(s.sectors, 6, 'easy', 1)).toMatchObject({ strike: 7, defense: 5, threshold: 8, attacks: false })
+    const n = { ...s, difficulty: 'normal' as const }
+    // EASY sends 70% of 6 = 5 forward: stack 7, reserve 1 → strike 7. NORMAL: 40% = 3 → stack 5, reserve 3 → strike 7.
+    const { state, report } = playRound(n, { alloc: [0, 0, 0, 0, 0], assault: 0, advance: false }, rolls(0, 0))
+    expect(report.counter).not.toBeNull()
+    expect(report.counter!.committed).toMatchObject({ edge: 4, assault: 3, attacker: 7 })
+    expect(state.aiPool).toBe(0 + 4)
+    expect(reconciles(report.ai)).toBe(true)
+    expect(reconciles(report.us)).toBe(true)
+  })
+
+  it('NORMAL and HARD attack late when losing the armistice count; EASY does not', () => {
+    const map = [S('US', 0), S('US', 0), S('US', 9), S('AI', 3), S('AI', 0)]
+    expect(counterPlan(map, 0, 'normal', MAX_ROUNDS - 3).attacks).toBe(false)
+    expect(counterPlan(map, 0, 'normal', MAX_ROUNDS - 2)).toMatchObject({ strike: 2, desperate: true, attacks: true })
+    expect(counterPlan(map, 0, 'hard', MAX_ROUNDS).attacks).toBe(true)
+    expect(counterPlan(map, 0, 'easy', MAX_ROUNDS).attacks).toBe(false)
+    // Not desperate while it holds the majority.
+    const ahead = [S('US', 0), S('US', 9), S('AI', 3), S('AI', 0), S('AI', 0)]
+    expect(counterPlan(ahead, 0, 'hard', MAX_ROUNDS).attacks).toBe(false)
+  })
+
+  it('difficulty is a real ladder: a careful scripted commander wins most on EASY, less on NORMAL, least on HARD', () => {
+    const commander = (s: State): Orders => {
+      const { edge } = front(s.sectors)
+      const hold: Orders = { alloc: [0, 0, 0, 0, 0].map((_, i) => (i === edge ? s.usPool : 0)), assault: 0, advance: false }
+      const go: Orders = { alloc: [0, 0, 0, 0, 0], assault: s.usPool, advance: true }
+      if (ordersProblem(s, go)) return hold
+      const late = s.round >= MAX_ROUNDS - 2 && held(s.sectors, 'US') < 3
+      const c = preview(s, go).chance
+      return c >= 0.65 || (late && c > 0.1) ? go : hold
+    }
+    const rate = (d: 'easy' | 'normal' | 'hard') => {
+      let w = 0
+      for (let i = 0; i < 150; i++) {
+        const R = rng(i * 977 + 1)
+        let s = initialState(d)
+        while (!s.result) s = playRound(s, commander(s), R).state
+        if (s.result.outcome === 'win') w++
+      }
+      return w / 150
+    }
+    const [e, n, h] = [rate('easy'), rate('normal'), rate('hard')]
+    expect(e).toBeGreaterThan(0.85)
+    expect(n).toBeLessThan(e)
+    expect(n).toBeGreaterThan(0.4)
+    expect(h).toBeLessThan(n)
+    expect(h).toBeLessThan(0.5)
+    expect(h).toBeGreaterThan(0.1)
   })
 })
 

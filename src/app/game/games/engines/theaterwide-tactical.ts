@@ -10,14 +10,20 @@
 // ROUND ORDER (documented in HOW TO PLAY):
 //   1. ALLOCATION. Simultaneous. You place reserve divisions on sectors you hold
 //      and, if your order is ADVANCE, into the ASSAULT slot against the
-//      contested sector. The enemy places its whole pool by its declared
-//      doctrine (decided from the start-of-round map, never from your orders).
+//      contested sector. The enemy moves part of its pool to the sector facing
+//      you by its declared doctrine (decided from the start-of-round map, never
+//      from your orders) and HOLDS THE REST IN RESERVE for counterattacks.
 //   2. YOUR ASSAULT (order ADVANCE). Edge garrison + assault divisions attack the
 //      contested sector. Each side adds a 0-3 roll. Higher total wins.
-//   3. ENEMY COUNTERATTACK. If the enemy stack facing your edge is at least your
-//      edge garrison + margin (EASY 4, NORMAL 3, HARD 2), it attacks with all
-//      but one division.
-//   4. REINFORCEMENT. Both pools gain +4, once, at the end of every round.
+//   3. ENEMY COUNTERATTACK. Strike force = the enemy stack facing your edge
+//      minus one division left to hold it, plus its whole reserve. It attacks
+//      when the strike force is at least your edge defense (garrison + line or
+//      capital bonus) + margin (EASY 3, NORMAL 1, HARD 0). On NORMAL and HARD,
+//      in the last three rounds, an enemy losing the armistice count attacks
+//      with any strike force of 2 or more.
+//   4. REINFORCEMENT. You gain +4; the enemy +3 (EASY) or +4 (NORMAL, HARD).
+//      Once, at the end of every round. Both start with 10 in reserve, except
+//      the enemy: 12 on NORMAL, 13 on HARD.
 //   5. ARMISTICE after round 14: the side holding 3+ of the 5 sectors wins.
 //      Five sectors cannot split evenly, so there is no tied armistice.
 
@@ -29,13 +35,21 @@ export const SECTOR_SHORT = ['HOME', 'WEST', 'CENTRAL', 'EAST', 'ENEMY'] as cons
 export const SECTOR_COUNT = 5
 export const US_CAPITAL = 0
 export const AI_CAPITAL = 4
+/** Your starting reserve. */
 export const START_POOL = 10
+/** Enemy starting reserve, by difficulty. */
+export const AI_START_POOL: Record<Difficulty, number> = { easy: 10, normal: 12, hard: 13 }
 export const START_GARRISON = 3
+/** Your reinforcement per round. */
 export const REINFORCE = 4
+/** Enemy reinforcement per round, by difficulty. */
+export const AI_REINFORCE: Record<Difficulty, number> = { easy: 3, normal: 4, hard: 4 }
 export const MAX_ROUNDS = 14
 export const ROLL_MAX = 3 // rolls are 0..3 inclusive
-/** Enemy counterattacks when its front stack is at least your edge garrison + margin. */
-export const COUNTER_MARGIN: Record<Difficulty, number> = { easy: 4, normal: 3, hard: 2 }
+/** Enemy counterattacks when its strike force is at least your edge defense (garrison + bonus) + margin. */
+export const COUNTER_MARGIN: Record<Difficulty, number> = { easy: 3, normal: 1, hard: 0 }
+/** NORMAL/HARD: rounds from which an enemy losing the armistice count attacks with any strike force >= 2. */
+export const DESPERATION_ROUNDS = 3
 /** Defender bonus added to the defense total: dug-in line / fortified capital. */
 export const LINE_BONUS = 1
 export const CAPITAL_BONUS = 3
@@ -84,7 +98,7 @@ export function initialState(difficulty: Difficulty = 'normal'): State {
       { owner: 'AI', div: 0 },
     ],
     usPool: START_POOL,
-    aiPool: START_POOL,
+    aiPool: AI_START_POOL[difficulty],
     round: 1,
     difficulty,
     result: null,
@@ -132,11 +146,11 @@ export interface Doctrine {
   readonly summary: string
 }
 export const DOCTRINES: Record<Difficulty, Doctrine> = {
-  easy: { name: 'FORWARD SCREEN', summary: '70% OF ITS POOL TO THE SECTOR FACING YOU, 30% TO THE SECTOR BEHIND IT' },
-  normal: { name: 'DEFENSE IN DEPTH', summary: '40% OF ITS POOL TO THE SECTOR FACING YOU, 60% BEHIND IT TO FEED COUNTERATTACKS' },
+  easy: { name: 'FORWARD SCREEN', summary: '70% OF ITS POOL TO THE SECTOR FACING YOU, 30% HELD IN RESERVE' },
+  normal: { name: 'DEFENSE IN DEPTH', summary: '40% OF ITS POOL TO THE SECTOR FACING YOU, 60% HELD IN RESERVE FOR COUNTERATTACKS' },
   hard: {
     name: 'MATCHED RESPONSE',
-    summary: 'ENOUGH TO THE SECTOR FACING YOU TO COVER YOUR EDGE GARRISON + RESERVE + 3, THE REST BEHIND IT',
+    summary: 'ENOUGH TO THE SECTOR FACING YOU TO COVER YOUR EDGE GARRISON + RESERVE + 3, THE REST HELD IN RESERVE',
   },
 }
 
@@ -147,10 +161,8 @@ export const DOCTRINES: Record<Difficulty, Doctrine> = {
 export function aiAllocate(s: State): number[] {
   const alloc = [0, 0, 0, 0, 0]
   const { edge, contested } = front(s.sectors)
-  const depth = contested + 1 <= AI_CAPITAL ? contested + 1 : contested
   let toFront: number
-  if (depth === contested) toFront = s.aiPool
-  else if (s.difficulty === 'easy') toFront = Math.ceil(s.aiPool * 0.7)
+  if (s.difficulty === 'easy') toFront = Math.ceil(s.aiPool * 0.7)
   else if (s.difficulty === 'normal') toFront = Math.ceil(s.aiPool * 0.4)
   else {
     // Cover your largest possible attack (edge + whole reserve + top roll).
@@ -158,8 +170,44 @@ export function aiAllocate(s: State): number[] {
     toFront = Math.max(0, Math.min(s.aiPool, need))
   }
   alloc[contested] = alloc[contested]! + toFront
-  alloc[depth] = alloc[depth]! + s.aiPool - toFront
   return alloc
+}
+
+export interface CounterPlan {
+  /** Divisions in the enemy stack facing your edge. */
+  readonly stack: number
+  /** Enemy reserve that joins the strike. */
+  readonly reserve: number
+  /** stack - 1 (left to hold) + reserve. */
+  readonly strike: number
+  /** Your edge garrison + defense bonus. */
+  readonly defense: number
+  /** Strike force needed under the normal rule. */
+  readonly threshold: number
+  readonly desperate: boolean
+  readonly attacks: boolean
+}
+
+/**
+ * Whether the enemy counterattacks your edge, from public numbers only.
+ * `round` is the round being played.
+ */
+export function counterPlan(
+  sectors: readonly Sector[],
+  aiReserve: number,
+  difficulty: Difficulty,
+  round: number,
+): CounterPlan {
+  const { edge, contested } = front(sectors)
+  const stack = contested > edge ? sectors[contested]!.div : 0
+  const reserve = Math.max(0, aiReserve)
+  const strike = Math.max(0, stack - 1) + reserve
+  const defense = sectors[edge]!.div + defenseBonus(edge)
+  const threshold = defense + COUNTER_MARGIN[difficulty]
+  const desperate =
+    difficulty !== 'easy' && round > MAX_ROUNDS - DESPERATION_ROUNDS && held(sectors, 'AI') * 2 < SECTOR_COUNT
+  const attacks = contested > edge && strike >= 2 && (strike >= threshold || desperate)
+  return { stack, reserve, strike, defense, threshold, desperate, attacks }
 }
 
 // ---------------------------------------------------------------- combat
@@ -318,8 +366,13 @@ export function preview(s: State, o: Orders) {
     defMin: defense,
     defMax: defense + ROLL_MAX,
     chance: o.advance && force > 0 ? breakthroughChance(force, defense) : 0,
-    /** Counterattack threat if your assault does not break through. */
-    counterIfHeld: !o.advance && defenders >= edgeForce + COUNTER_MARGIN[s.difficulty] && defenders >= 2,
+    /** Counterattack plan if you HOLD (or your assault does not break through). */
+    counter: counterPlan(
+      s.sectors.map((x, i) => ({ owner: x.owner, div: x.div + (x.owner === 'US' ? o.alloc[i]! : ai[i]!) })),
+      s.aiPool - sum(ai),
+      s.difficulty,
+      s.round,
+    ),
     aiAlloc: ai,
   }
 }
@@ -379,14 +432,17 @@ export function playRound(s: State, o: Orders, rand: () => number): { state: Sta
     const f1 = front(sec)
     const enemy = sec[f1.contested]!.div
     const garrison = sec[f1.edge]!.div
-    if (enemy >= 2 && enemy >= garrison + COUNTER_MARGIN[s.difficulty]) {
+    const plan = counterPlan(sec, aiPool, s.difficulty, s.round)
+    if (plan.attacks) {
+      const stay = Math.min(1, enemy)
+      aiPool -= plan.reserve
       counter = resolveBattle({
         attacker: 'AI',
         from: f1.contested,
         target: f1.edge,
-        edge: enemy - 1,
-        assault: 0,
-        stay: 1,
+        edge: enemy - stay,
+        assault: plan.reserve,
+        stay,
         defense: garrison,
         bonus: defenseBonus(f1.edge),
         retreatTo: f1.edge > US_CAPITAL ? f1.edge - 1 : null,
@@ -406,7 +462,7 @@ export function playRound(s: State, o: Orders, rand: () => number): { state: Sta
   }
 
   // 4. Reinforcement: once per round, both sides, same moment.
-  const reinforced = result ? { us: 0, ai: 0 } : { us: REINFORCE, ai: REINFORCE }
+  const reinforced = result ? { us: 0, ai: 0 } : { us: REINFORCE, ai: AI_REINFORCE[s.difficulty] }
   usPool += reinforced.us
   aiPool += reinforced.ai
 

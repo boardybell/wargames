@@ -11,8 +11,10 @@ import {
   maneuver,
   resolveTurn,
   veteranPolicy,
+  type Act,
   type Fighter,
 } from '@app/game/games/engines/fighter-combat'
+import { rng } from '@app/game/games/hooks'
 
 const F = (x: number, y: number, hdg: number, energy = 6, hp = 6): Fighter => ({ x, y, hdg, energy, hp })
 
@@ -101,6 +103,35 @@ describe('fighter combat: AI', () => {
   it('VETERAN takes a clean shot from a stable position', () => {
     // Player at zero energy can only CLIMB (stay) or THROTTLE (straight 2).
     expect(veteranPolicy(F(3, 3, 4, 6), F(3, 4, 4, 0))).toBe('GUNS')
+  })
+  it('VETERAN is the harder opponent: beats a chasing pilot outside PERCH and a sloppy one more often than BEGINNER', () => {
+    const fly = (sc: (typeof SCENARIOS)[number], foeAi: (f: Fighter, y: Fighter) => Act, pilot: (y: Fighter, f: Fighter) => Act) => {
+      let you: Fighter = sc.you
+      let foe: Fighter = sc.foe
+      for (let t = 1; ; t++) {
+        const r = resolveTurn(you, foe, pilot(you, foe), foeAi(foe, you), t)
+        you = r.you
+        foe = r.foe
+        if (r.end) return r.end
+      }
+    }
+    for (const sc of SCENARIOS) if (sc.id !== 'perch') expect(fly(sc, veteranPolicy, chasePolicy)).toBe('shot-down')
+    const sloppy = (seed: number) => {
+      const R = rng(seed)
+      return (y: Fighter, f: Fighter): Act => {
+        if (R() < 0.25) {
+          const el = eligibleActs(y)
+          return el[Math.floor(R() * el.length)]!
+        }
+        return chasePolicy(y, f)
+      }
+    }
+    const kills = (ai: (f: Fighter, y: Fighter) => Act) => {
+      let n = 0
+      for (const sc of SCENARIOS) for (let s = 1; s <= 10; s++) if (fly(sc, ai, sloppy(s * 31 + sc.id.length)) === 'shot-down') n++
+      return n
+    }
+    expect(kills(veteranPolicy)).toBeGreaterThan(kills(chasePolicy) + 5)
   })
   it('every scenario starts with both aircraft on the scope and deterministic', () => {
     for (const sc of SCENARIOS) {

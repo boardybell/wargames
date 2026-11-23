@@ -9,7 +9,10 @@ import { Action, ActionBar, GameReport, GameResult, GameShell, Panel, Segmented,
 import { cue, fmtWLD, newSeed, rng, useEventLog, useGameKeys, useGameRecords, usePhone, type WLD } from './hooks'
 import {
   AI_CAPITAL,
+  AI_REINFORCE,
+  AI_START_POOL,
   COUNTER_MARGIN,
+  DESPERATION_ROUNDS,
   CAPITAL_BONUS,
   DOCTRINES,
   LINE_BONUS,
@@ -17,6 +20,7 @@ import {
   REINFORCE,
   SECTOR_NAMES,
   SECTOR_SHORT,
+  START_POOL,
   US_CAPITAL,
   committed,
   emptyOrders,
@@ -175,7 +179,7 @@ function TheaterwideTactical({ onExit }: GameProps) {
     if (report.assaultBattle) ev.push({ text: battleLine(report.assaultBattle), kind: report.assaultBattle.result === 'breakthrough' ? 'good' : 'bad' })
     else ev.push({ text: 'NO ASSAULT. YOUR LINE HOLDS POSITION.' })
     if (report.counter) ev.push({ text: battleLine(report.counter), kind: report.counter.result === 'breakthrough' ? 'bad' : 'good' })
-    if (report.reinforced.us) ev.push({ text: `REINFORCEMENTS +${REINFORCE} EACH. YOUR RESERVE ${state.usPool}, ENEMY RESERVE ${state.aiPool}.` })
+    if (report.reinforced.us) ev.push({ text: `REINFORCEMENTS: YOU +${report.reinforced.us}, ENEMY +${report.reinforced.ai}. YOUR RESERVE ${state.usPool}, ENEMY RESERVE ${state.aiPool}.` })
     if (state.result) {
       const t = resultText(state.result)
       ev.push({ text: t.headline, kind: state.result.outcome === 'win' ? 'good' : 'bad' })
@@ -238,7 +242,8 @@ function TheaterwideTactical({ onExit }: GameProps) {
         </li>
         <li>
           EACH ROUND: (1) PLACE RESERVE ON SECTORS YOU HOLD, OR INTO THE ASSAULT SLOT ON THE CONTESTED SECTOR. UNPLACED RESERVE
-          CARRIES OVER. THE ENEMY PLACES ITS WHOLE POOL BY ITS DOCTRINE AT THE SAME TIME, FROM THE START-OF-ROUND MAP.
+          CARRIES OVER. AT THE SAME TIME THE ENEMY MOVES PART OF ITS POOL TO THE SECTOR FACING YOU BY ITS DOCTRINE, FROM THE
+          START-OF-ROUND MAP, AND HOLDS THE REST IN RESERVE.
         </li>
         <li>
           (2) ADVANCE: YOUR EDGE GARRISON PLUS ASSAULT DIVISIONS ATTACK. ATTACK = DIVISIONS + ROLL 0-3. DEFENSE = DIVISIONS +{' '}
@@ -253,13 +258,19 @@ function TheaterwideTactical({ onExit }: GameProps) {
           SURVIVORS WITHDRAW TO YOUR EDGE. CASUALTIES COME FROM THE ASSAULT SLOT FIRST, THEN THE GARRISON, EACH COUNTED ONCE.
         </li>
         <li>
-          (3) COUNTERATTACK: IF THE ENEMY STACK FACING YOUR EDGE IS AT LEAST YOUR EDGE GARRISON + {COUNTER_MARGIN.easy} (EASY),{' '}
-          {COUNTER_MARGIN.normal} (NORMAL) OR {COUNTER_MARGIN.hard} (HARD), IT ATTACKS WITH ALL BUT ONE DIVISION, SAME RULES.
+          (3) COUNTERATTACK: THE ENEMY STRIKE FORCE IS ITS STACK FACING YOUR EDGE (LESS 1 LEFT TO HOLD IT) PLUS ITS WHOLE
+          RESERVE. IT ATTACKS WHEN THAT REACHES YOUR EDGE DEFENSE (GARRISON + LINE OR CAPITAL BONUS) + {COUNTER_MARGIN.easy}{' '}
+          (EASY), {COUNTER_MARGIN.normal} (NORMAL) OR {COUNTER_MARGIN.hard} (HARD), SAME COMBAT RULES. ON NORMAL AND HARD, IN THE
+          LAST {DESPERATION_ROUNDS} ROUNDS, AN ENEMY THAT WOULD LOSE THE ARMISTICE ATTACKS WITH ANY STRIKE FORCE OF 2 OR MORE.
         </li>
-        <li>(4) REINFORCEMENT: +{REINFORCE} TO BOTH RESERVE POOLS, ONCE, AT THE END OF EVERY ROUND.</li>
         <li>
-          DIFFICULTY CHANGES THE ENEMY DOCTRINE AND COUNTERATTACK MARGIN, NOTHING HIDDEN. EASY: {DOCTRINES.easy.summary}. NORMAL:{' '}
-          {DOCTRINES.normal.summary}. HARD: {DOCTRINES.hard.summary}.
+          (4) REINFORCEMENT, ONCE AT THE END OF EVERY ROUND: YOU +{REINFORCE}; ENEMY +{AI_REINFORCE.easy} (EASY),{' '}
+          +{AI_REINFORCE.normal} (NORMAL), +{AI_REINFORCE.hard} (HARD).
+        </li>
+        <li>
+          DIFFICULTY CHANGES THE ENEMY'S STARTING RESERVE ({AI_START_POOL.easy} / {AI_START_POOL.normal} / {AI_START_POOL.hard}{' '}
+          AGAINST YOUR {START_POOL}), REINFORCEMENTS, DOCTRINE AND COUNTERATTACK MARGIN. NOTHING HIDDEN. EASY:{' '}
+          {DOCTRINES.easy.summary}. NORMAL: {DOCTRINES.normal.summary}. HARD: {DOCTRINES.hard.summary}.
         </li>
         <li>KEYS: LEFT/RIGHT SELECT SECTOR, + / - ADJUST, A ADVANCE, H HOLD, C CLEAR, X EXECUTE. ORDERS START EACH ROUND AS HOLD.</li>
       </ul>
@@ -401,10 +412,13 @@ function TheaterwideTactical({ onExit }: GameProps) {
         </>
       ) : (
         <p>
-          HOLD: NO ASSAULT. EDGE GARRISON {pv.edgeForce} FACES {pv.defenders} ENEMY.{' '}
-          {pv.counterIfHeld
-            ? `ENEMY WILL COUNTERATTACK (THRESHOLD ${pv.edgeForce + COUNTER_MARGIN[s.difficulty]}).`
-            : `NO COUNTERATTACK UNLESS THE ENEMY REACHES ${pv.edgeForce + COUNTER_MARGIN[s.difficulty]}.`}
+          HOLD: NO ASSAULT. YOUR EDGE DEFENSE {pv.counter.defense} (GARRISON {pv.edgeForce} + BONUS). ENEMY STRIKE FORCE{' '}
+          {pv.counter.strike} ({pv.counter.stack} FACING YOU + {pv.counter.reserve} RESERVE).{' '}
+          {pv.counter.attacks
+            ? pv.counter.desperate && pv.counter.strike < pv.counter.threshold
+              ? 'ENEMY WILL COUNTERATTACK: IT IS LOSING THE ARMISTICE COUNT.'
+              : `ENEMY WILL COUNTERATTACK (THRESHOLD ${pv.counter.threshold}).`
+            : `NO COUNTERATTACK UNLESS ITS STRIKE FORCE REACHES ${pv.counter.threshold}.`}
         </p>
       )}
       <p className="tt-dim">
